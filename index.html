@@ -1705,10 +1705,9 @@ async function runDiagnostics(sampleHome = "대한민국", sampleAway = "체코"
 
   await sleep(2500); // ★ 분당 요청제한 회피용 대기
 
-  // 2) API 키 / 쿼터 확인 (status 응답에서 subscription·requests 정보 파싱)
-  try {
-    const res = await fetchWithTimeout(workingProxy + encodeURIComponent(statusUrl), { headers }, 6000);
-    const j = await res.json().catch(()=>null);
+  // 2) API 키 / 쿼터 확인 — 개선된 apiFootball() 사용 (에러 응답시 자동으로 다른 프록시 재시도)
+  {
+    const j = await apiFootball("status", 6000);
     const acct = j?.response?.account;
     const reqs = j?.response?.requests;
     const sub = j?.response?.subscription;
@@ -1719,52 +1718,40 @@ async function runDiagnostics(sampleHome = "대한민국", sampleAway = "체코"
     } else {
       steps.push({ step: "API 키 / 계정", ok: false, detail: `응답: ${JSON.stringify(j).slice(0,150)}` });
     }
-  } catch (e) {
-    steps.push({ step: "API 키 / 계정", ok: false, detail: `오류: ${e?.message || e}` });
   }
 
   await sleep(2500);
 
-  // 3) 샘플 매치 fixture 조회 (h2h)
+  // 3) 샘플 매치 fixture 조회 (h2h) — apiFootball()이 내부적으로 헤더 누락 프록시를 자동 우회
   const homeId = TEAM_API_IDS[sampleHome], awayId = TEAM_API_IDS[sampleAway];
   steps.push({ step: `팀 ID 매핑 (${sampleHome}/${sampleAway})`, ok: !!(homeId && awayId), detail: `${sampleHome}=${homeId ?? "없음"}, ${sampleAway}=${awayId ?? "없음"}` });
   if (homeId && awayId) {
-    try {
-      const h2hUrl = `https://${RUNTIME_CONFIG.footballApiHost}/fixtures/headtohead?h2h=${homeId}-${awayId}&last=5`;
-      const res = await fetchWithTimeout(workingProxy + encodeURIComponent(h2hUrl), { headers }, 6000);
-      const j = await res.json().catch(()=>null);
-      const arr = j?.response;
-      if (Array.isArray(arr) && arr.length) {
-        const f = arr[0];
-        steps.push({ step: "fixture 조회 (h2h)", ok: true, detail: `${arr.length}건 발견 · 최근: ${f?.fixture?.date?.slice(0,10)} (id ${f?.fixture?.id})` });
+    const j = await apiFootball(`fixtures/headtohead?h2h=${homeId}-${awayId}&last=5`, 6000);
+    const arr = j?.response;
+    if (Array.isArray(arr) && arr.length) {
+      const f = arr[0];
+      steps.push({ step: "fixture 조회 (h2h)", ok: true, detail: `${arr.length}건 발견 · 최근: ${f?.fixture?.date?.slice(0,10)} (id ${f?.fixture?.id})` });
 
-        await sleep(2500);
+      await sleep(2500);
 
-        // 4) predictions 조회
-        try {
-          const predUrl = `https://${RUNTIME_CONFIG.footballApiHost}/predictions?fixture=${f.fixture.id}`;
-          const r2 = await fetchWithTimeout(workingProxy + encodeURIComponent(predUrl), { headers }, 6000);
-          const j2 = await r2.json().catch(()=>null);
-          const pred = j2?.response?.[0]?.predictions;
-          if (pred) {
-            steps.push({ step: "predictions 조회", ok: true, detail: `승무패: ${JSON.stringify(pred.percent)}` });
-          } else if (j2?.errors?.rateLimit) {
-            steps.push({ step: "predictions 조회", ok: null, detail: "분당 요청제한 도달 — 1분 후 다시 시도" });
-          } else {
-            steps.push({ step: "predictions 조회", ok: false, detail: `응답: ${JSON.stringify(j2).slice(0,150)}` });
-          }
-        } catch (e) {
-          steps.push({ step: "predictions 조회", ok: false, detail: `오류: ${e?.message || e}` });
-        }
-      } else if (j?.errors?.rateLimit) {
-        steps.push({ step: "fixture 조회 (h2h)", ok: null, detail: "분당 요청제한 도달 — 1분 후 다시 시도" });
-      } else if (j?.errors?.token) {
-        steps.push({ step: "fixture 조회 (h2h)", ok: false, detail: `토큰 오류: ${j.errors.token}` });
+      // 4) predictions 조회
+      const j2 = await apiFootball(`predictions?fixture=${f.fixture.id}`, 6000);
+      const pred = j2?.response?.[0]?.predictions;
+      if (pred) {
+        steps.push({ step: "predictions 조회", ok: true, detail: `승무패: ${JSON.stringify(pred.percent)}` });
+      } else if (j2?.errors?.rateLimit) {
+        steps.push({ step: "predictions 조회", ok: null, detail: "분당 요청제한 도달 — 1분 후 다시 시도" });
       } else {
-        steps.push({ step: "fixture 조회 (h2h)", ok: false, detail: `응답: ${JSON.stringify(j).slice(0,150)}` });
+        steps.push({ step: "predictions 조회", ok: false, detail: `응답: ${JSON.stringify(j2).slice(0,150)}` });
       }
-    } catch (e) {
-      steps.push({ step: "fixture 조회 (h2h)", ok: false, detail: `오류: ${e?.message || e}` });
+    } else if (j?.errors?.rateLimit) {
+      steps.push({ step: "fixture 조회 (h2h)", ok: null, detail: "분당 요청제한 도달 — 1분 후 다시 시도" });
+    } else if (j?.errors?.token) {
+      steps.push({ step: "fixture 조회 (h2h)", ok: false, detail: `토큰 오류: ${j.errors.token}` });
+    } else if (j === null) {
+      steps.push({ step: "fixture 조회 (h2h)", ok: false, detail: "모든 프록시에서 실패 (네트워크/CORS)" });
+    } else {
+      steps.push({ step: "fixture 조회 (h2h)", ok: false, detail: `응답: ${JSON.stringify(j).slice(0,150)}` });
     }
   }
 
@@ -1822,21 +1809,32 @@ async function fetchWithTimeout(url, options = {}, timeoutMs = 3000) {
 // API-Football 공통 호출 헬퍼 — 프록시 경유 + 런타임 키. 실패시 null.
 async function apiFootball(path, timeoutMs = 4000) {
   if (!RUNTIME_CONFIG.footballApiKey) return null; // 키 없으면 시도 안 함
-  try {
-    const url = `https://${RUNTIME_CONFIG.footballApiHost}/${path}`;
-    const res = await fetchViaProxies(url, {
-      headers: {
-        "x-apisports-key": RUNTIME_CONFIG.footballApiKey,
-        "x-rapidapi-key": RUNTIME_CONFIG.footballApiKey,
-        "x-rapidapi-host": RUNTIME_CONFIG.footballApiHost,
-      },
-    }, timeoutMs);
-    if (!res || !res.ok) return null;
-    const data = await res.json();
-    return data ?? null;
-  } catch (e) {
-    return null; // CORS/타임아웃/키오류 → 정적 폴백
+  const url = `https://${RUNTIME_CONFIG.footballApiHost}/${path}`;
+  const headers = {
+    "x-apisports-key": RUNTIME_CONFIG.footballApiKey,
+    "x-rapidapi-key": RUNTIME_CONFIG.footballApiKey,
+    "x-rapidapi-host": RUNTIME_CONFIG.footballApiHost,
+  };
+  const tried = new Set();
+  let rateLimited = false;
+  for (const proxy of PROXY_FALLBACKS) {
+    const p = proxy === null ? RUNTIME_CONFIG.corsProxy : proxy;
+    if (!p || tried.has(p)) continue;
+    tried.add(p);
+    try {
+      const res = await fetchWithTimeout(p + encodeURIComponent(url), { headers }, timeoutMs);
+      if (!res.ok) continue; // 프록시 자체 실패 → 다음 프록시
+      const data = await res.json().catch(() => null);
+      if (!data) continue;
+      // ★ HTTP 200이지만 API 레벨 에러("Missing application key" 등 — 프록시가 헤더를 빠뜨린 경우)는 실패로 간주, 다음 프록시 시도
+      if (data.errors && Object.keys(data.errors).length > 0) {
+        if (data.errors.rateLimit) rateLimited = true; // 분당제한이면 다른 프록시도 같은 키라 의미 없지만 일단 계속
+        continue;
+      }
+      return data;
+    } catch (e) { /* 다음 프록시로 */ }
   }
+  return rateLimited ? { errors: { rateLimit: "rate limited on all proxies" } } : null;
 }
 
 // 라이브 스쿼드 조회 — 실패/ID없음 시 null (TeamModal에서 정적 SQUADS로 폴백)
