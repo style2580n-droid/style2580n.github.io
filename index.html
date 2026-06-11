@@ -1,0 +1,3284 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1"/>
+<title>FIFA 2026 월드컵 예측기</title>
+<script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+<script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+<script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+<style>
+  html,body,#root{margin:0;padding:0;background:#05080f;min-height:100vh;}
+  *{-webkit-tap-highlight-color:transparent;}
+</style>
+</head>
+<body>
+<div id="root"></div>
+
+<script>
+/* window.storage 폴리필 — Claude 아티팩트 밖(일반 웹)에서는 localStorage로 영구 저장 */
+(function(){
+  if (window.storage) return;
+  function lsKey(k, shared){ return (shared?"shared:":"user:") + k; }
+  window.storage = {
+    async get(key, shared){
+      const v = localStorage.getItem(lsKey(key, shared));
+      if (v === null) return null;
+      return { key, value: v, shared: !!shared };
+    },
+    async set(key, value, shared){
+      localStorage.setItem(lsKey(key, shared), value);
+      return { key, value, shared: !!shared };
+    },
+    async delete(key, shared){
+      localStorage.removeItem(lsKey(key, shared));
+      return { key, deleted: true, shared: !!shared };
+    },
+    async list(prefix, shared){
+      const pfx = lsKey(prefix||"", shared);
+      const keys = [];
+      for (let i=0;i<localStorage.length;i++){
+        const full = localStorage.key(i);
+        if (full && full.startsWith(pfx)){
+          keys.push(full.replace(shared?"shared:":"user:",""));
+        }
+      }
+      return { keys, prefix, shared: !!shared };
+    }
+  };
+})();
+</script>
+
+<script type="text/babel" data-presets="react">
+const { useState, useCallback, useMemo, useEffect, useRef } = React;
+
+
+// ═══════════════════════════════════════════════════════════
+// 🏆 2026 WORLD CUP — GOLDMAN SACHS GRADE PREDICTOR
+// Hybrid ELO: xG + Attack + Defense + Form + Market + Player + Monte Carlo
+// Official 26-man squads (June 1, 2026)
+// + 예측 기록 탭 (적중/미적중 저장, 영구 저장 storage)
+// ═══════════════════════════════════════════════════════════
+
+// ─── DESIGN TOKENS ──────────────────────────────────────────
+const T = {
+  bg:      "#05080f",
+  surface: "#0b1220",
+  card:    "#0f1a2e",
+  border:  "#182640",
+  borderHi:"#1e3a5f",
+  accent:  "#2979ff",
+  accentDim:"#1a4a99",
+  gold:    "#f5a623",
+  green:   "#00c853",
+  red:     "#ff3d57",
+  purple:  "#9c27b0",
+  cyan:    "#00bcd4",
+  text:    "#e8f0fe",
+  muted:   "#6b8aad",
+  dim:     "#2a3f5f",
+};
+
+// ─── FLAGS ───────────────────────────────────────────────────
+const FLAGS = {
+  "대한민국":"🇰🇷","일본":"🇯🇵","중국":"🇨🇳","호주":"🇦🇺","이란":"🇮🇷",
+  "사우디아라비아":"🇸🇦","카타르":"🇶🇦","이라크":"🇮🇶","요르단":"🇯🇴",
+  "인도네시아":"🇮🇩","인도":"🇮🇳","태국":"🇹🇭","타지키스탄":"🇹🇯",
+  "우즈베키스탄":"🇺🇿","뉴질랜드":"🇳🇿","프랑스":"🇫🇷","독일":"🇩🇪",
+  "스페인":"🇪🇸","잉글랜드":"🏴","포르투갈":"🇵🇹","네덜란드":"🇳🇱",
+  "벨기에":"🇧🇪","크로아티아":"🇭🇷","스위스":"🇨🇭","스웨덴":"🇸🇪",
+  "노르웨이":"🇳🇴","오스트리아":"🇦🇹","체코":"🇨🇿","헝가리":"🇭🇺",
+  "스코틀랜드":"🏴","보스니아":"🇧🇦","러시아":"🇷🇺","벨라루스":"🇧🇾",
+  "아르메니아":"🇦🇲","아제르바이잔":"🇦🇿","몰도바":"🇲🇩","카자흐스탄":"🇰🇿",
+  "산마리노":"🇸🇲","아이슬란드":"🇮🇸","튀르키예":"🇹🇷","튀니지":"🇹🇳",
+  "알제리":"🇩🇿","브라질":"🇧🇷","아르헨티나":"🇦🇷","콜롬비아":"🇨🇴",
+  "우루과이":"🇺🇾","에콰도르":"🇪🇨","파라과이":"🇵🇾","볼리비아":"🇧🇴",
+  "베네수엘라":"🇻🇪","미국":"🇺🇸","캐나다":"🇨🇦","멕시코":"🇲🇽",
+  "코스타리카":"🇨🇷","파나마":"🇵🇦","아이티":"🇭🇹","트리니다드토바고":"🇹🇹",
+  "카보베르데":"🇨🇻","세네갈":"🇸🇳","모로코":"🇲🇦","이집트":"🇪🇬",
+  "나이지리아":"🇳🇬","가나":"🇬🇭","코트디부아르":"🇨🇮","남아프리카공화국":"🇿🇦",
+  "모잠비크":"🇲🇿","부르키나파소":"🇧🇫","콩고민주공화국":"🇨🇩","퀴라소":"🇨🇼",
+};
+const flag = n => FLAGS[n] || "🏳";
+
+// ─── OFFICIAL 2026 SQUADS (26-man, confirmed June 1) ────
+// + 일정에 등장하는 예선 플레이오프 16개팀 추가 (그룹 표기: "PO" = 플레이오프)
+const SQUADS = {
+  "브라질": {
+    coach:"카를로 안첼로티", formation:"4-2-3-1", group:"C",
+    gk:["알리송","에데르손","베베르통"],
+    df:["마르키뇨스","다닐루 루이스","알렉스 산드루","가브리엘 마갈량이스","브레메르","웨슬리","호제르 이바녜스","더글라스 산투스","레우 페레이라"],
+    mf:["카세미루","루카스 파케타","브루누 기마랑이스","파비뉴","다닐루"],
+    fw:["네이마르","비니시우스 주니오르","하피냐","가브리엘 마르티넬리","마테우스 쿠냐","엔드리크","루이스 엔히케","이고르 치아구","하이앙"],
+    xi:["알리송","다닐루 루이스","마르키뇨스","브레메르","알렉스 산드루","카세미루","브루누 기마랑이스","루카스 파케타","하피냐","비니시우스 주니오르","엔드리크"],
+    injured:["네이마르(장딴지-출전의문)","에스테방(햄스트링-결장)","호드리구(부상-결장)"],
+    keyOut:["에스테방","호드리구"],
+    ppda:8.2, fieldTilt:58, setPieceXg:0.38,
+  },
+  "프랑스": {
+    coach:"디디에 데샹", formation:"4-2-3-1", group:"I",
+    gk:["마이크 메냥","로뱅 리세르","브리스 상바"],
+    df:["뤼카 딘","말로 귀스토","뤼카 에르난데스","테오 에르난데스","이브라히마 코나테","막상스 라크루아","쥘 쿤데","윌리암 살리바","다요 우파메카노"],
+    mf:["은골로 캉테","마뉘 코네","아드리앙 라비오","오렐리앙 추아메니","와렝 자이르-에메리"],
+    fw:["마네스 아클리우슈","브래들리 바르콜라","라이앙 셰르키","우스만 뎀벨레","데지레 두에","미카엘 올리스","킬리안 음바페","장필리프 마테타","마르쿠스 튀랑"],
+    xi:["메냥","쿤데","우파메카노","살리바","테오 에르난데스","추아메니","캉테","뎀벨레","자이르에메리","올리스","음바페"],
+    injured:["Zaïre-Emery(출전가능)"],
+    keyOut:[],
+    ppda:7.1, fieldTilt:61, setPieceXg:0.44,
+  },
+  "스페인": {
+    coach:"루이스 데 라 푸엔테", formation:"4-3-3", group:"H",
+    gk:["우나이 시몬","다비드 라야","알렉스 레미로"],
+    df:["다니 카르바할","파우 쿠바르시","아이메리크 라포르트","알레한드로 그리말도","이니고 마르티네스","페드로 포로","나초","로뱅 르 노르망"],
+    mf:["페드리","로드리","마르틴 수비멘디","파비안 루이스","다니 올모","미켈 메리노","알렉스 바에나"],
+    fw:["라민 야말","니코 윌리엄스","알바로 모라타","예레미 피노","미켈 오야르사발","페란 토레스"],
+    xi:["시몬","카르바할","라포르트","쿠바르시","그리말도","로드리","페드리","파비안 루이스","야말","니코 윌리엄스","모라타"],
+    injured:["Yamal(발목-출전의문)","Merino(발 피로골절-가능)","Samu Aghehowa(ACL-결장)"],
+    keyOut:["사무 아게오와"],
+    ppda:6.3, fieldTilt:65, setPieceXg:0.41,
+  },
+  "아르헨티나": {
+    coach:"리오넬 스칼로니", formation:"4-3-3", group:"J",
+    gk:["에밀리아노 마르티네스","헤로니모 룰리","후안 무소"],
+    df:["레오나르도 발레르디","니콜라스 타글리아피코","곤살로 몬티엘","리산드로 마르티네스","크리스티안 로메로","니콜라스 오타멘디","파쿤도 메디나","나우엘 몰리나"],
+    mf:["레안드로 파레데스","로드리고 데 파울","발렌틴 바르코","지오바니 로 첼소","엑세키엘 팔라시오스","알렉시스 맥 앨리스터","엔소 페르난데스"],
+    fw:["훌리안 알바레스","리오넬 메시","니콜라스 곤살레스","티아고 알마다","줄리아노 시메오네","니코 파스","호세 로페스","라우타로 마르티네스"],
+    xi:["E.마르티네스","몰리나","로메로","L.마르티네스","타글리아피코","맥 앨리스터","데 파울","E.페르난데스","메시","L.마르티네스","J.알바레스"],
+    injured:["Messi(햄스트링-경미)","Romero(무릎인대-가능)"],
+    keyOut:[],
+    ppda:9.1, fieldTilt:56, setPieceXg:0.35,
+  },
+  "잉글랜드": {
+    coach:"토마스 투헬", formation:"4-3-3", group:"L",
+    gk:["조던 픽포드","딘 헨더슨","제임스 트래퍼드"],
+    df:["리스 제임스","에즈리 콘사","자렐 콴사","존 스톤스","마크 게히","댄 번","니코 오라일리","제드 스펜스","티노 리브라멘투"],
+    mf:["데클란 라이스","엘리엇 앤더슨","코비 마이누","조던 헨더슨","모건 로저스","주드 벨링엄","에베레치 에제"],
+    fw:["해리 케인","이반 토니","올리 왓킨스","부카요 사카","마커스 래시퍼드","앤서니 고든","노니 마두에케"],
+    xi:["픽포드","R.제임스","스톤스","게히","리브라멘투","라이스","벨링엄","마이누","사카","케인","래시퍼드"],
+    injured:[],
+    keyOut:[],
+    ppda:8.8, fieldTilt:57, setPieceXg:0.39,
+  },
+  "독일": {
+    coach:"율리안 나겔스만", formation:"4-2-3-1", group:"E",
+    gk:["마누엘 노이어","올리버 바우만","알렉산더 뉘벨"],
+    df:["니코 슐로터베크","다비드 라움","나타니엘 브라운","요나탄 타","발데마르 안톤","조슈아 키미히","말리크 티아우","안토니오 뤼디거"],
+    mf:["파스칼 그로스","레온 고레츠카","펠릭스 은메차","자말 무지알라","나디엠 아미리","제이미 레벨링","플로리안 비르츠","레로이 사네","알렉산다르 파블로비치","안젤로 슈틸러"],
+    fw:["카이 하베르츠","닉 볼테마데","데니스 운다프","막시밀리안 바이어"],
+    xi:["노이어","키미히","타","슐로터베크","라움","파블로비치","고레츠카","비르츠","사네","무지알라","하베르츠"],
+    injured:["Lennart Karl(허벅지-결장)"],
+    keyOut:["레나르트 카를"],
+    ppda:7.8, fieldTilt:59, setPieceXg:0.36,
+  },
+  "포르투갈": {
+    coach:"로베르토 마르티네스", formation:"4-3-3", group:"K",
+    gk:["디오구 코스타","조제 사","루이 파트리시우"],
+    df:["주앙 칸셀루","루벤 디아스","안토니우 실바","누누 멘데스","디오구 달로","페페","곤살루 이나시우"],
+    mf:["비티냐","주앙 팔리냐","루벤 네베스","베르나르두 실바","주앙 펠릭스","브루누 페르난데스"],
+    fw:["크리스티아누 호날두","하파엘 레앙","페드루 네투","루벤 네베스","곤살루 하무스","프란시스쿠 콘세이상"],
+    xi:["D.코스타","칸셀루","R.디아스","A.실바","N.멘데스","팔리냐","B.페르난데스","B.실바","페드루 네투","호날두","레앙"],
+    injured:[],
+    keyOut:[],
+    ppda:8.5, fieldTilt:55, setPieceXg:0.37,
+  },
+  "네덜란드": {
+    coach:"로날트 쿠만", formation:"4-3-3", group:"F",
+    gk:["바르트 페르브뤼헌","마르크 플레켄","유스틴 베이로우"],
+    df:["버질 반 다이크","마티스 더 리흐트","나탄 아케","덴젤 둠프리스","뤼트샤렐 헤르트루이다","달리 블린트","스테판 더 프레이"],
+    mf:["프렝키 더 용","라이언 흐라번베르흐","티야니 레인더르스","테윈 코프마이너르스","하비 시몬스"],
+    fw:["멤피스 더파이","바우트 베흐호르스트","도니엘 말른","코디 학포","브라이언 브로비","노아 랑"],
+    xi:["페르브뤼헌","둠프리스","더 리흐트","반 다이크","아케","더 용","흐라번베르흐","레인더르스","시몬스","학포","더파이"],
+    injured:["Jurrien Timber(햄스트링-결장→Geertruida로 교체)"],
+    keyOut:["위리안 팀베르"],
+    ppda:8.0, fieldTilt:60, setPieceXg:0.40,
+  },
+  "벨기에": {
+    coach:"루디 가르시아", formation:"4-3-3", group:"G",
+    gk:["티보 쿠르투아","세네 라멘스","마이크 펜더르스"],
+    df:["티모시 카스타뉴","제노 더바스트","막심 더 쿠이퍼","코니 더 빈터","브랜던 메쉘러","토마스 뫼니에","나탄 응고이","호아킨 세이스","아르튀르 테아트"],
+    mf:["케빈 더 브라위너","아마두 오나나","니콜라 라스킨","유리 틸레만스","한스 바나켄","악셀 비첼"],
+    fw:["샤를 더 케텔라레","제레미 도쿠","마티아스 페르난데스파르도","로멜루 루카쿠","도디 뤼케바키오","디에고 모레이라","알렉시스 살레마케르스","레안드로 트로사르"],
+    xi:["쿠르투아","카스타뉴","더바스트","테아트","더 쿠이퍼","더 브라위너","오나나","틸레만스","도쿠","루카쿠","더 케텔라레"],
+    injured:["De Bruyne(허벅지-출전가능)"],
+    keyOut:[],
+    ppda:9.3, fieldTilt:54, setPieceXg:0.33,
+  },
+  "크로아티아": {
+    coach:"즐라트코 달리치", formation:"4-3-3", group:"L",
+    gk:["도미니크 리바코비치","도미니크 코타르스키","이보르 판두르"],
+    df:["요슈코 그바르디올","두예 찰레타카르","요시프 슈탈로","요시프 스타니시치","마린 폰그라치치","마르틴 에를리치","루카 부슈코비치"],
+    mf:["루카 모드리치","마테오 코바치치","마리오 파살리치","니콜라 블라시치","루카 수치치","마르틴 바투리나","크리스티얀 야키치","페타르 수치치","니콜라 모로","토니 프루크"],
+    fw:["이반 페리시치","안드레이 크라마리치","안테 부디미르","마르코 파살리치","페타르 무사","이고르 마타노비치"],
+    xi:["리바코비치","스타니시치","그바르디올","슈탈로","페리시치","코바치치","모드리치","파살리치","블라시치","크라마리치","부디미르"],
+    injured:[],
+    keyOut:[],
+    ppda:10.2, fieldTilt:51, setPieceXg:0.29,
+  },
+  "대한민국": {
+    coach:"홍명보", formation:"4-2-3-1", group:"A",
+    gk:["김승규","조현우","송범근"],
+    df:["김민재","권경원","이기제","김진수","설영우","홍현석","이창근"],
+    mf:["황인범","정우영","이재성","이강인","박용우","손준호","백승호"],
+    fw:["손흥민","황희찬","조규성","오현규","엄원상","이동준"],
+    xi:["김승규","이기제","김민재","권경원","김진수","황인범","정우영","이강인","황희찬","손흥민","조규성"],
+    injured:["손흥민(햄스트링-경미/출전예정)"],
+    keyOut:[],
+    ppda:11.5, fieldTilt:48, setPieceXg:0.28,
+  },
+  "일본": {
+    coach:"모리야스 하지메", formation:"4-2-3-1", group:"F",
+    gk:["스즈키 자이온","마에카와 타이야","타니 코세이"],
+    df:["이타쿠라 코","토미야스 타케히로","이토 히로키","스가와라 유키","하시오카 다이키","미우라 소타","타니구치 쇼고"],
+    mf:["엔도 와타루","타나카 아오","모리타 히데마사","도안 리츠","쿠보 타케후사","미토마 카오루","미나미노 타쿠미"],
+    fw:["우에다 아야세","마에다 다이젠","아사노 타쿠마","나카무라 케이토"],
+    xi:["鈴木","菅原","板倉","冨安","伊藤","遠藤","守田","堂安","久保","三笘","上田"],
+    injured:[],
+    keyOut:[],
+    ppda:9.8, fieldTilt:53, setPieceXg:0.31,
+  },
+  "모로코": {
+    coach:"왈리드 레그라기", formation:"4-1-4-1", group:"C",
+    gk:["야신 보누","아흐메드 타그나우티","무니르 모하메디"],
+    df:["아슈라프 하키미","나예프 아게르드","로맹 사이스","누사이르 마즈라우이","자와드 엘 야미크","바드르 베눈","야히아 아티야트 알라"],
+    mf:["소피안 암라바트","아즈딘 우나히","셀림 아말라","하킴 지예흐","수피안 부팔","빌랄 엘 칸누스","일리아스 체어"],
+    fw:["유세프 엔네시리","아유브 엘 카비","압드 에잘줄리","수피안 라히미"],
+    xi:["Bounou","Hakimi","Aguerd","Saïss","Mazraoui","Amrabat","Ounahi","El Khannous","Ziyech","Boufal","En-Nesyri"],
+    injured:[],
+    keyOut:[],
+    ppda:12.1, fieldTilt:46, setPieceXg:0.27,
+  },
+  "세네갈": {
+    coach:"알리우 시세", formation:"4-3-3", group:"I",
+    gk:["에두아르 멘디","모리 쟈우","예반 디우프"],
+    df:["칼리두 쿨리발리","엘 하지 말리크 디우프","마마두 사르","무사 냐카테","압둘라예 세크","이스마일 야콥스","크레팽 디아타","앙투안 멘디"],
+    mf:["이드리사 게예","파페 마타르 사르","라민 카마라","남팔리스 멘디","하비브 디알로"],
+    fw:["사디오 마네","이스마일라 사르","니콜라스 잭슨","불라예 쟈","일리만 은디아예","압달라 시마"],
+    xi:["Mendy","Koulibaly","Sarr","Niakhaté","Jakobs","Gueye","P.M.Sarr","Camara","Sarr","Mané","Jackson"],
+    injured:[],
+    keyOut:[],
+    ppda:13.2, fieldTilt:44, setPieceXg:0.25,
+  },
+  "미국": {
+    coach:"마우리시오 포체티노", formation:"4-3-3", group:"D",
+    gk:["크리스 브레이디","맷 프리즈","맷 터너"],
+    df:["맥스 아르프스텐","세르히뇨 데스트","알렉스 프리먼","마크 맥켄지","팀 림","크리스 리처즈","앤터니 로빈슨","마일스 로빈슨","조 스캘리","오스턴 트러스티"],
+    mf:["타일러 애덤스","세바스티안 베르할터","웨스턴 맥케니","지오 레이나","크리스티안 롤단","말리크 틸먼"],
+    fw:["브렌든 아론슨","폴라린 발로군","리카르도 페피","크리스티안 풀리시치","팀 위어","하지 라이트","알렉스 센데하스"],
+    xi:["Freese","Dest","Richards","M.Robinson","A.Robinson","Adams","McKennie","Reyna","Weah","Pulisic","Balogun"],
+    injured:["Patrick Agyemang(아킬레스건-결장)","Johnny Cardoso(발목-결장)"],
+    keyOut:["패트릭 아제만","조니 카르도소"],
+    ppda:10.8, fieldTilt:50, setPieceXg:0.32,
+  },
+  "캐나다": {
+    coach:"제시 마쉬", formation:"4-3-3", group:"B",
+    gk:["Dayne St Clair","Maxime Crépeau","Owen Goodman"],
+    df:["Alistair Johnston","Derek Cornelius","Richie Laryea","Niko Sigur","Joel Waterman","Luc de Fougerolles","Moïse Bombito","Alphonso Davies","Alfie Jones"],
+    mf:["Stephen Eustáquio","Ismaël Koné","Tajon Buchanan","Mathieu Choinière","Ali Ahmed","Nathan Saliba","Liam Millar","Jacob Shaffelburg","Jonathan Osorio"],
+    fw:["Jonathan David","Cyle Larin","Tani Oluwaseyi","Promise David"],
+    xi:["St Clair","Johnston","Cornelius","Bombito","Davies","Eustáquio","Koné","Buchanan","Shaffelburg","David","Larin"],
+    injured:[],
+    keyOut:[],
+    ppda:11.2, fieldTilt:49, setPieceXg:0.30,
+  },
+  "멕시코": {
+    coach:"하비에르 아기레", formation:"4-4-2", group:"A",
+    gk:["Guillermo Ochoa","Luis Malagón","Rodolfo Cota"],
+    df:["Jorge Sánchez","César Montes","Johan Vásquez","Jesús Gallardo","Kevin Álvarez","Israel Reyes","Héctor Moreno"],
+    mf:["Edson Álvarez","Andrés Guardado","Orbelín Pineda","Roberto Alvarado","Alexis Vega","Chucky Lozano","Erick Gutiérrez"],
+    fw:["Santiago Giménez","Raúl Jiménez","Henry Martín","Uriel Antuna","Julián Quiñones"],
+    xi:["Malagón","Sánchez","Montes","Vásquez","Gallardo","Edson","Guardado","Alvarado","R.Alvarado","Giménez","Jiménez"],
+    injured:["Jesús Orozco Chiquete(결장)"],
+    keyOut:["Orozco Chiquete"],
+    ppda:11.8, fieldTilt:47, setPieceXg:0.26,
+  },
+  "콜롬비아": {
+    coach:"네스토르 로렌소", formation:"4-3-3", group:"K",
+    gk:["다비드 오스피나","카밀로 바르가스","알바로 몬테로","케빈 미에르"],
+    df:["요한 모히카","다니엘 무뇨스","예리 미나","다빈손 산체스","존 루쿠미","후안 카발","데이베르 마차도","빌레르 디타"],
+    mf:["하메스 로드리게스","제퍼슨 레르마","존 아리아스","리차드 리오스","후안 킨테로","호르헤 카라스칼","케빈 카스타뇨","야세르 아스프릴라"],
+    fw:["루이스 디아스","존 코르도바","루이스 수아레스","쿠초 에르난데스","카를로스 고메스"],
+    xi:["Vargas","Muñoz","Sánchez","Lucumí","Mojica","Lerma","R.Ríos","James","Arias","L.Díaz","Córdoba"],
+    injured:[],
+    keyOut:[],
+    ppda:10.5, fieldTilt:52, setPieceXg:0.33,
+  },
+  "우루과이": {
+    coach:"마르셀로 비엘사", formation:"4-3-3", group:"H",
+    gk:["세르히오 로체트","기예르모 바렐라","산티아고 멜레"],
+    df:["로날드 아라우호","호세 마리아 히메네스","세바스티안 카세레스","마티아스 올리베라","나이탄 난데스","니콜라스 마리찰"],
+    mf:["페데리코 발베르데","로드리고 벤탄쿠르","마누엘 우가르테","니콜라스 데 라 크루스","파쿤도 펠리스트리"],
+    fw:["다윈 누네스","막시밀리아노 고메스","아구스틴 알바레스","파쿤도 토레스","마티아스 비냐","브라이언 로드리게스"],
+    xi:["Rochet","Nández","Araújo","J.Giménez","Olivera","Valverde","Ugarte","Bentancur","De La Cruz","Núñez","Álvarez"],
+    injured:[],
+    keyOut:[],
+    ppda:10.9, fieldTilt:51, setPieceXg:0.30,
+  },
+  "알제리": {
+    coach:"블라디미르 페트코비치", formation:"4-2-3-1", group:"J",
+    gk:["Oussama Benbot","Melvin Masstil","Luca Zidane"],
+    df:["Achraf Abada","Rayan Aït-Nouri","Zinedine Belaïd","Rafik Belghali","Ramy Bensebaini","Samir Chergui","Jaouen Hadjam","Aïssa Mandi","Mohamed Amine Tougaï"],
+    mf:["Houssem Aouar","Nabil Bentaleb","Hicham Boudaoui","Farès Chaibi","Ibrahim Maza","Yassine Titraoui","Ramiz Zerrouki"],
+    fw:["Mohamed Amine Amoura","Nadir Benbouali","Adil Boulbina","Farès Ghedjemis","Amine Gouiri","Riyad Mahrez","Anis Hadj Moussa"],
+    xi:["Benbot","Belghali","Mandi","Bensebaini","Aït-Nouri","Zerrouki","Boudaoui","Mahrez","Aouar","Chaibi","Gouiri"],
+    injured:[],
+    keyOut:[],
+    ppda:13.5, fieldTilt:43, setPieceXg:0.24,
+  },
+  "오스트리아": {
+    coach:"랄프 랑닉", formation:"4-2-3-1", group:"J",
+    gk:["Alexander Schlager","Patrick Pentz","Florian Wiegele"],
+    df:["David Affengruber","David Alaba","Kevin Danso","Marco Friedl","Philipp Lienhart","Phillipp Mwene","Stefan Posch","Alexander Prass","Michael Svoboda"],
+    mf:["Christoph Baumgartner","Carney Chukwuemeka","Florian Grillitsch","Konrad Laimer","Marcel Sabitzer","Xaver Schlager","Romano Schmid","Nicolas Seiwald","Paul Wanner","Patrick Wimmer","Alessandro Schöpf"],
+    fw:["Marko Arnautović","Michael Gregoritsch","Saša Kalajdžić"],
+    xi:["Schlager","Laimer","Lienhart","Alaba","Mwene","X.Schlager","Seiwald","Wimmer","Baumgartner","Sabitzer","Arnautović"],
+    injured:[],
+    keyOut:[],
+    ppda:11.0, fieldTilt:50, setPieceXg:0.29,
+  },
+  "요르단": {
+    coach:"호삼 하산", formation:"4-4-2", group:"J",
+    gk:["Yazeed Abo Laila","Mohammad Suleiman","Amer Shafi"],
+    df:["Yaseen Al-Bakhit","Bahloul Bani Attia","Ahmad Ibrahim","Rami Hamdan","Baha' Faisal"],
+    mf:["Mousa Al-Tamari","Abdallah Nasib","Yazan Al-Naimat","Ahmad Rawabdeh","Mohammad Al-Dmeiri"],
+    fw:["Ahmad Dibo","Omar Al-Qaisi","Hamza Al-Dardour","Firas Al-Khatib"],
+    xi:["Abo Laila","Bani Attia","Ibrahim","Hamdan","Faisal","Nasib","Al-Naimat","Rawabdeh","Al-Tamari","Al-Dardour","Dibo"],
+    injured:[],
+    keyOut:[],
+    ppda:16.2, fieldTilt:37, setPieceXg:0.19,
+  },
+  "이란": {
+    coach:"아미르 갈레노에이", formation:"4-3-3", group:"G",
+    gk:["Alireza Beiranvand","Payam Niazmand","Hossein Hosseini"],
+    df:["Sadegh Moharrami","Majid Hosseini","Ehsan Pahlevan","Milad Mohammadi","Hossein Kanaanizadegan","Shojae Khalilzadeh"],
+    mf:["Saeid Ezatolahi","Ali Karimi","Ahmad Noorollahi","Vahid Amiri","Alireza Jahanbakhsh"],
+    fw:["Mehdi Taremi","Sardar Azmoun","Karim Ansarifard","Reza Ghoochannejhad"],
+    xi:["Beiranvand","Moharrami","Hosseini","Pahlevan","Mohammadi","Ezatolahi","Noorollahi","Karimi","Jahanbakhsh","Azmoun","Taremi"],
+    injured:[],
+    keyOut:[],
+    ppda:14.8, fieldTilt:40, setPieceXg:0.22,
+  },
+  "이집트": {
+    coach:"호삼 엘바드리", formation:"4-2-3-1", group:"G",
+    gk:["Mohamed El-Shenawy","Mostafa Shobeir","El Mahdy Soliman"],
+    df:["Mohamed Abdelmonem","Mohamed Hany","Yasser Ibrahim","Hossam Abdelmaguid","Ahmed Fattouh","Tarek Alaa","Rami Rabia","Karim Hafez"],
+    mf:["Marwan Attia","Ahmed Sayed(Zizo)","Trezeguet","Emam Ashour","Mostafa Abdel Raouf","Hamdi Fathi"],
+    fw:["Mohamed Salah","Omar Marmoush","Hamza Abdel Karim"],
+    xi:["El-Shenawy","Hany","Abdelmonem","Ibrahim","Abdelmaguid","Attia","Ashour","Trezeguet","Zizo","Salah","Marmoush"],
+    injured:[],
+    keyOut:[],
+    ppda:13.9, fieldTilt:42, setPieceXg:0.23,
+  },
+  "뉴질랜드": {
+    coach:"대런 베이즐리", formation:"4-2-3-1", group:"G",
+    gk:["Mathew Ryan","Stefan Marinovic","Max Crocombe"],
+    df:["Winston Reid","Niko Kirwan","Liberato Cacace","Alex Rufer","Michael Boxall","Dane Ingham"],
+    mf:["Clayton Lewis","Louis Verdonk","Ryan Thomas","Callan Elliott","Ben Old"],
+    fw:["Chris Wood","Sarpreet Singh","Joe Bell","Kosta Barbarouses"],
+    xi:["Ryan","Kirwan","Reid","Boxall","Cacace","Lewis","Thomas","Rufer","Old","Singh","Wood"],
+    injured:[],
+    keyOut:[],
+    ppda:16.8, fieldTilt:36, setPieceXg:0.17,
+  },
+  "노르웨이": {
+    coach:"스톨레 솔바켄", formation:"4-3-3", group:"I",
+    gk:["외리얀 닐란","요시프 포사베츠","야코브 카를스트룀"],
+    df:["크리스토퍼 아이에르","레오 스키리 외스티고르","안드레아스 한셰올센","프레드리크 비외르칸","비르게르 멜링","율리안 뤼에르손","스티안 그레게르센"],
+    mf:["산데르 베르게","프레드리크 아우르스네스","마르틴 외데고르","마티아스 노르만","토비아스 사나"],
+    fw:["엘링 홀란","알렉산데르 쇠를로트","안토니오 누사","요르겐 스트란 라르센","모하메드 엘유누시"],
+    xi:["Nyland","Ryerson","Ajer","Østigård","Bjørkan","Berge","Aursnes","Ødegaard","Nusa","Haaland","Sørloth"],
+    injured:[],
+    keyOut:[],
+    ppda:9.5, fieldTilt:54, setPieceXg:0.36,
+  },
+  "이라크": {
+    coach:"헤수스 카사스", formation:"4-3-3", group:"I",
+    gk:["Jalal Hassan Taleb","Fahad Talib","Mohammed Hameed"],
+    df:["Ali Adnan","Hussein Ali","Rebin Sulaka","Mohanad Abdul-Raheem","Mustafa Nadhum"],
+    mf:["Amjad Attwan","Saad Abdul-Amir","Bashar Resan","Aymen Hussein","Ibrahim Bayesh"],
+    fw:["Mohanad Ali","Alaa Abbas","Hamza Barry","Ahmed Yasin"],
+    xi:["Taleb","Sulaka","Hussein","Abdul-Raheem","Adnan","Attwan","Abdul-Amir","Resan","Barry","Ali","Abbas"],
+    injured:[],
+    keyOut:[],
+    ppda:15.5, fieldTilt:38, setPieceXg:0.20,
+  },
+  "보스니아": {
+    coach:"세르게이 바르바레스", formation:"4-2-3-1", group:"B",
+    gk:["Nikola Vasilj","Martin Zlomislić","Osman Hadžikić"],
+    df:["Sead Kolašinac","Amar Dedić","Nihad Mujakić","Nikola Katić","Tarik Muharemović","Dennis Hadžikadunić","Nidal Celik"],
+    mf:["Amir Hadžiahmetović","Ivan Šunjić","Ivan Bašić","Dženis Burnić","Benjamin Tahirović","Amar Memić","Armin Gigović","Kerim Alajbegović","Esmir Bajraktarević","Ermin Mahmić"],
+    fw:["Ermedin Demirović","Jovo Lukić","Samed Baždar","Haris Tabaković","Edin Džeko"],
+    xi:["Vasilj","Dedić","Muharemović","Kolašinac","Katić","Šunjić","Tahirović","Bajraktarević","Bašić","Demirović","Džeko"],
+    injured:[],
+    keyOut:[],
+    ppda:12.8, fieldTilt:45, setPieceXg:0.26,
+  },
+  "스위스": {
+    coach:"무라트 야킨", formation:"4-2-3-1", group:"B",
+    gk:["Yann Sommer","Gregor Kobel","Jonas Omlin"],
+    df:["Manuel Akanji","Nico Elvedi","Ricardo Rodriguez","Silvan Widmer","Fabian Schär","Kevin Mbabu"],
+    mf:["Granit Xhaka","Remo Freuler","Denis Zakaria","Ruben Vargas","Fabian Frei","Michel Aebischer","Noah Okafor","Breel Embolo"],
+    fw:["Xherdan Shaqiri","Haris Seferović","Zeki Amdouni"],
+    xi:["Kobel","Widmer","Akanji","Schär","Rodriguez","Xhaka","Freuler","Okafor","Vargas","Embolo","Amdouni"],
+    injured:[],
+    keyOut:[],
+    ppda:10.3, fieldTilt:52, setPieceXg:0.31,
+  },
+  "카타르": {
+    coach:"루이스 가르시아", formation:"4-3-3", group:"B",
+    gk:["Meshaal Barsham","Saad Al Sheeb","Abdulaziz Hatem"],
+    df:["Pedro Miguel","Tarek Salman","Bassam Al-Rawi","Ismaeel Mohammad","Homam Ahmed"],
+    mf:["Abdulaziz Hatem","Akram Afif","Hassan Al-Haydos","Ali Asad","Karim Boudiaf","Assim Madibo"],
+    fw:["Almoez Ali","Mohammed Muntari","Yusuf Abdurisag"],
+    xi:["Barsham","Pedro Miguel","Al-Rawi","Salman","Ahmed","Boudiaf","Madibo","Hatem","Afif","Almoez","Muntari"],
+    injured:[],
+    keyOut:[],
+    ppda:15.1, fieldTilt:39, setPieceXg:0.21,
+  },
+  "체코": {
+    coach:"미로슬라프 코우베크", formation:"4-2-3-1", group:"A",
+    gk:["Lukáš Horníček","Matěj Kovář","Jindřich Staněk"],
+    df:["Vladimír Coufal","David Douděra","Tomáš Holeš","Robin Hranáč","Štěpán Chaloupek","David Jurásek","Ladislav Krejčí","Jaroslav Zelený","David Zima"],
+    mf:["Lukáš Červ","Vladimír Darida","Lukáš Provod","Michal Sadílek","Hugo Sochůrek","Tomáš Souček","Pavel Šulc","Denis Višinský","Alexandr Sojka"],
+    fw:["Adam Hložek","Tomáš Chorý","Mojmír Chytil","Jan Kuchta","Patrik Schick"],
+    xi:["Kovář","Coufal","Hranáč","Krejčí","Jurásek","Holeš","Souček","Šulc","Provod","Hložek","Schick"],
+    injured:[],
+    keyOut:[],
+    ppda:12.0, fieldTilt:47, setPieceXg:0.27,
+  },
+  "남아프리카공화국": {
+    coach:"우고 브루스", formation:"4-4-2", group:"A",
+    gk:["Ronwen Williams","Veli Mothwa","Bruce Bvuma"],
+    df:["Aubrey Modiba","Mothobi Mvala","Grant Kekana","Nkosinathi Sibisi","Reeve Frosler","Siyanda Xulu"],
+    mf:["Teboho Mokoena","Themba Zwane","Percy Tau","Ethan Ntsontso","Abbubaker Mobara","Lyle Foster"],
+    fw:["Bafana Cele","Lebo Mothiba","Evidence Makgopa","Relebohile Mofokeng"],
+    xi:["Williams","Frosler","Kekana","Sibisi","Modiba","Mokoena","Zwane","Tau","Mobara","Makgopa","Mofokeng"],
+    injured:["Aubrey Modiba(의문)"],
+    keyOut:[],
+    ppda:14.5, fieldTilt:41, setPieceXg:0.21,
+  },
+  "카보베르데": {
+    coach:"부비스타", formation:"4-3-3", group:"H",
+    gk:["Vozinha","Marcio Rosa","CJ dos Santos"],
+    df:["Stopira","Roberto Lopes","João Paulo","Diney","Logan Costa","Steven Moreira","Wagner Pina","Sidny Cabral","Kelvin Pires"],
+    mf:["Jamiro Monteiro","Kevin Pina","Deroy Duarte","Telmo Arcanjo","Laros Duarte","Yannick Semedo"],
+    fw:["Ryan Mendes","Garry Rodrigues","Willy Semedo","Jovane Cabral","Dailon Livramento","Helio Varela","Nuno da Costa"],
+    xi:["Vozinha","Moreira","Costa","Stopira","Lopes","K.Pina","Monteiro","L.Duarte","Semedo","Cabral","Mendes"],
+    injured:[],
+    keyOut:[],
+    ppda:15.8, fieldTilt:38, setPieceXg:0.18,
+  },
+  "사우디아라비아": {
+    coach:"에르베 르나르", formation:"4-3-3", group:"H",
+    gk:["Nawaf Al Aqidi","Mohamed Al Owais","Ahmed Alkassar"],
+    df:["Saud Abdulhamid","Jehad Thakri","Abdulelah Al Amri","Hassan Tambakti","Ali Lajami","Hassan Kadesh","Moteb Al Harbi","Nawaf Boushal","Ali Majrashi"],
+    mf:["Ziyad Al Johani","Nasser Al Dawsari","Mohamed Kanno","Abdullah Al Khaibari","Sultan Mandash","Musab Al Juwayr","Khalid Al Ghannam","Ayman Yahya","Alaa Al Hejji"],
+    fw:["Salem Al Dawsari","Abdullah Al Hamdan","Feras Al Brikan","Saleh Al Shehri"],
+    xi:["Al Aqidi","Boushal","Tambakti","Al Amri","Al Harbi","Kanno","Al Khaibari","N.Al Dawsari","Mandash","S.Al Dawsari","Al Brikan"],
+    injured:[],
+    keyOut:[],
+    ppda:13.7, fieldTilt:43, setPieceXg:0.22,
+  },
+  "호주": {
+    coach:"토니 포포비치", formation:"5-4-1", group:"D",
+    gk:["Mathew Ryan","Patrick Beach","Paul Izzo"],
+    df:["Aziz Behich","Jordan Bos","Cameron Burgess","Alessandro Circati","Milos Degenek","Jason Geria","Lucas Herrington","Jacob Italiano","Harry Souttar","Kai Trewin"],
+    mf:["Cameron Devlin","Ajdin Hrustic","Jackson Irvine","Connor Metcalfe","Aiden O'Neill","Paul Okon-Engstler"],
+    fw:["Nestory Irankunda","Mathew Leckie","Awer Mabil","Mohamed Toure","Nishan Velupillay","Cristian Volpato","Tete Yengi"],
+    xi:["Ryan","Italiano","Degenek","Souttar","Circati","Bos","Metcalfe","Devlin","O'Neill","Irankunda","Toure"],
+    injured:[],
+    keyOut:[],
+    ppda:13.0, fieldTilt:45, setPieceXg:0.24,
+  },
+  "튀르키예": {
+    coach:"빈첸초 몬텔라", formation:"4-2-3-1", group:"D",
+    gk:["Altay Bayındır","Uğurcan Çakır","Doğan Alemdar"],
+    df:["Zeki Çelik","Samet Akaydın","Kaan Ayhan","Ferdi Kadıoğlu","Abdülkerim Bardakcı","Mert Müldür","Çağlar Söyüncü"],
+    mf:["Hakan Çalhanoğlu","Salih Özcan","İlkay Gündoğan","Kenan Yıldız","Arda Güler","Barış Alper Yılmaz","Orkun Kökçü"],
+    fw:["Burak Yılmaz","Cenk Tosun","Semih Kılıçsoy","Halil Dervişoğlu"],
+    xi:["Çakır","Çelik","Söyüncü","Akaydın","Kadıoğlu","Çalhanoğlu","Gündoğan","Özcan","Güler","Yıldız","Kılıçsoy"],
+    injured:[],
+    keyOut:[],
+    ppda:11.5, fieldTilt:49, setPieceXg:0.30,
+  },
+  "파라과이": {
+    coach:"다니엘 가르네로", formation:"4-4-2", group:"D",
+    gk:["Roberto Fernández","Orlando Gill","Gastón Olveira"],
+    df:["Omar Alderete","Junior Alonso","Fabián Balbuena","Juan José Cáceres","Gustavo Gómez","Alexandro Maidana"],
+    mf:["Damián Bobadilla","Andrés Cubas","Matías Galarza","Diego Gómez","Mauricio Magalhães","Briaian Ojeda","Alejandro Romero"],
+    fw:["Miguel Almirón","Julio Enciso","Isidro Pitta","Gabriel Ávalos","Alex Arce"],
+    xi:["Fernández","Maidana","Gómez","Alonso","Balbuena","Bobadilla","Cubas","Galarza","Almirón","Enciso","Pitta"],
+    injured:[],
+    keyOut:[],
+    ppda:14.2, fieldTilt:40, setPieceXg:0.20,
+  },
+  "가나": {
+    coach:"카를로스 케이로스", formation:"4-2-3-1", group:"L",
+    gk:["Joseph Anang","Benjamin Asare","Lawrence Ati-Zigi"],
+    df:["Jonas Adjetey","Derrick Luckassen","Gideon Mensah","Abdul Mumin","Jerome Opoku","Kojo Oppong Preprah","Baba Abdul Rahman","Alidu Seidu","Marvin Senaya"],
+    mf:["Augustine Boakye","Abdul Fatawu Issahaku","Elisha Owusu","Thomas Partey","Kamal Deen Sulemana","Caleb Yirenkyi"],
+    fw:["Prince Kwabena Adu","Jordan Ayew","Christopher Bonsu Baah","Ernest Nuamah","Antoine Semenyo","Brandon Thomas-Asante","Iñaki Williams"],
+    xi:["Ati-Zigi","Seidu","Mumin","Mensah","B.A.Rahman","Partey","Owusu","Issahaku","Sulemana","I.Williams","Semenyo"],
+    injured:[],
+    keyOut:[],
+    ppda:13.3, fieldTilt:44, setPieceXg:0.23,
+  },
+  "파나마": {
+    coach:"토마스 크리스티안센", formation:"4-4-2", group:"L",
+    gk:["Luis Mejía","Orlando Mosquera","Lionel Baloy"],
+    df:["Éric Davis","Harold Cummings","Andrés Andrade","Fidel Escobar","Roderick Miller","César Yanis"],
+    mf:["Adalberto Carrasquilla","Édgar Bárcenas","Aníbal Godoy","Michael Murillo","Alberto Quintero","José Fajardo"],
+    fw:["Rolando Blackburn","Abdiel Ayarza","Gabriel Torres","Ismael Díaz"],
+    xi:["Mosquera","Davis","Cummings","Escobar","Andrade","Godoy","Carrasquilla","Bárcenas","Murillo","Blackburn","I.Díaz"],
+    injured:[],
+    keyOut:[],
+    ppda:15.2, fieldTilt:38, setPieceXg:0.18,
+  },
+  "에콰도르": {
+    coach:"세바스티안 베카카체", formation:"4-3-3", group:"E",
+    gk:["Hernán Galíndez","Moisés Ramírez","Gonzalo Valle"],
+    df:["Piero Hincapié","Willian Pacho","Pervis Estupiñán","Félix Torres","Joel Ordóñez","Jackson Porozo","Ángelo Preciado","Yaimar Medina"],
+    mf:["Moisés Caicedo","Alan Franco","Kendry Páez","Gonzalo Plata","Pedro Vite","Jordy Alcivar","Denil Castillo","John Yeboah","Nilson Angulo","Alan Minda"],
+    fw:["Enner Valencia","Kevin Rodríguez","Jordy Caicedo","Anthony Valencia","Jeremy Arévalo"],
+    xi:["Galíndez","Preciado","Torres","Pacho","Estupiñán","Caicedo","Franco","Páez","Plata","E.Valencia","A.Valencia"],
+    injured:[],
+    keyOut:[],
+    ppda:12.4, fieldTilt:46, setPieceXg:0.26,
+  },
+  "코트디부아르": {
+    coach:"에메르스 파에", formation:"4-3-3", group:"E",
+    gk:["Yahia Fofana","Badra Ali Sangare","Ismaël Sylla"],
+    df:["Serge Aurier","Eric Bailly","Simon Deli","Wilfried Singo","Ghislain Konan","Jean-Philippe Krasso","Odilon Kossounou"],
+    mf:["Ibrahim Sangaré","Franck Kessié","Jean Michaël Seri","Seko Fofana","Oumar Diakité"],
+    fw:["Wilfried Zaha","Sebastién Haller","Nicolas Pépé","Simon Adingra","Jonathan Kodjia"],
+    xi:["Fofana","Aurier","Bailly","Deli","Konan","Sangaré","Kessié","Fofana","Zaha","Haller","Adingra"],
+    injured:[],
+    keyOut:[],
+    ppda:12.6, fieldTilt:47, setPieceXg:0.27,
+  },
+  "퀴라소": {
+    coach:"딕 아드보카트", formation:"4-3-3", group:"E",
+    gk:["Eloy Room","Trevor Doornbusch","Tyrick Bodak"],
+    df:["Jurien Gaari","Roshon van Eijma","Sherel Floranus","Joshua Brenet","Shurandy Sambo","Armando Obispo","Riechedly Bazoer","Deveron Fonville"],
+    mf:["Leandro Bacuna","Juninho Bacuna","Godfried Roemeratoe","Kevin Felida","Livano Comenencia","Ar'jany Martha","Tyrese Noslin"],
+    fw:["Kenji Gorré","Brandley Kuwas","Gervane Kastaneer","Jeremy Antonisse","Jearl Margaritha","Jürgen Locadia","Sontje Hansen","Tahith Chong"],
+    xi:["Room","Brenet","Obispo","van Eijma","Floranus","L.Bacuna","J.Bacuna","Noslin","Chong","Gorre","Hansen"],
+    injured:[],
+    keyOut:[],
+    ppda:16.0, fieldTilt:36, setPieceXg:0.17,
+  },
+  "스웨덴": {
+    coach:"욘 달 토마손", formation:"4-4-2", group:"F",
+    gk:["Robin Olsen","Kristoffer Nordfeldt","Andreas Linde"],
+    df:["Mikael Lustig","Victor Lindelöf","Ludwig Augustinsson","Filip Helander","Carl Starfelt","Emil Krafth"],
+    mf:["Emil Forsberg","Sebastian Larsson","Viktor Claesson","Dejan Kulusevski","Anthony Elanga","Jesper Karlsson"],
+    fw:["Alexander Isak","Viktor Gyökeres","Jordan Larsson"],
+    xi:["Olsen","Lustig","Lindelöf","Helander","Augustinsson","Forsberg","Larsson","Kulusevski","Claesson","Isak","Gyökeres"],
+    injured:[],
+    keyOut:[],
+    ppda:10.8, fieldTilt:51, setPieceXg:0.32,
+  },
+  "튀니지": {
+    coach:"잘렐 카드리", formation:"4-3-3", group:"F",
+    gk:["Aymen Dahmen","Moez Hassan","Bechir Ben Said"],
+    df:["Dylan Bronn","Montassar Talbi","Ali Maaloul","Mohamed Draeger","Wajdi Kechrida","Bilel Ifa"],
+    mf:["Ellyes Skhiri","Anis Ben Slimane","Ghaylane Chaalali","Hannibal Mejbri","Seifeddine Jaziri"],
+    fw:["Wahbi Khazri","Taha Yassine Khenissi","Naim Sliti","Yohan Boli"],
+    xi:["Dahmen","Kechrida","Talbi","Bronn","Maaloul","Skhiri","Ben Slimane","Chaalali","Mejbri","Khazri","Khenissi"],
+    injured:[],
+    keyOut:[],
+    ppda:14.0, fieldTilt:41, setPieceXg:0.22,
+  },
+  "콩고민주공화국": {
+    coach:"세바스티앙 데자브르", formation:"4-3-3", group:"K",
+    gk:["Lionel Mpasi","Timothy Fayulu","Matthieu Epolo"],
+    df:["Chancel Mbemba","Arthur Masuaku","Gédéon Kalulu","Joris Kayembe","Dylan Batubinsika","Axel Tuanzebe","Aaron Wan-Bissaka","Steve Kapuadi"],
+    mf:["Meschack Elia","Samuel Moutoussamy","Edo Kayembe","Theo Bongonda","Charles Pickel","Gaël Kakuta","Noah Sadiki","Nathanaël Mbuku","Aaron Tshibola"],
+    fw:["Cédric Bakambu","Simon Banza","Fiston Mayele","Yoane Wissa","Ngal'ayel Mukau"],
+    xi:["Mpasi","Wan-Bissaka","Mbemba","Tuanzebe","Masuaku","Elia","Pickel","Kakuta","Bongonda","Wissa","Banza"],
+    injured:[],
+    keyOut:[],
+    ppda:14.5, fieldTilt:40, setPieceXg:0.21,
+  },
+  "우즈베키스탄": {
+    coach:"스레치코 카타네츠", formation:"4-3-3", group:"K",
+    gk:["Eldor Shomurodov","Jasur Yaxshiboev","Sanjar Komilov"],
+    df:["Husayn Norchaev","Murodjon Yakhshiboev","Akbar Tursunov","Eldor Suyunov","Ibrohim Rabimov"],
+    mf:["Jaloliddin Masharipov","Otabek Shukurov","Khojiakbar Alijonov","Jamshid Iskanderov","Muhammadali Bekmurodov"],
+    fw:["Sherzod Nasrullayev","Eldor Shomurodov","Bobur Abdixoliqov","Jasurbek Yakhshiboev"],
+    xi:["Yaxshiboev","Norchaev","Yakhshiboev","Tursunov","Suyunov","Shukurov","Alijonov","Masharipov","Shomurodov","Iskanderov","Nasrullayev"],
+    injured:[],
+    keyOut:[],
+    ppda:15.0, fieldTilt:39, setPieceXg:0.19,
+  },
+  "스코틀랜드": {
+    coach:"스티브 클라크", formation:"3-5-2", group:"C",
+    gk:["Craig Gordon","Angus Gunn","Zander Clark"],
+    df:["Andrew Robertson","Kieran Tierney","John Souttar","Grant Hanley","Scott McKenna","Jack Hendry"],
+    mf:["Scott McTominay","Callum McGregor","Billy Gilmour","Ryan Christie","John McGinn","Kenny McLean","Stuart Armstrong"],
+    fw:["Lyndon Dykes","Che Adams","Lawrence Shankland","Kevin Nisbet"],
+    xi:["Gordon","Robertson","Hanley","Souttar","McKenna","Tierney","McTominay","McGregor","McGinn","Dykes","Adams"],
+    injured:[],
+    keyOut:[],
+    ppda:12.9, fieldTilt:45, setPieceXg:0.25,
+  },
+  "아이티": {
+    coach:"마르크 콜라", formation:"4-4-2", group:"C",
+    gk:["Johny Placide","Alexandre Pierre","Josué Duverger"],
+    df:["Carlens Arcus","Jean-Kevin Duverne","Hannes Delcroix","Ricardo Adé","Duke Lacroix"],
+    mf:["Jean-Ricner Bellegarde","Carl Starfelt","Frantzdy Pierrot","Naomie Belfort","Kévin Lafrance"],
+    fw:["Duckens Nazon","Frantzdy Pierrot","Steeven Saba","Wilde-Donald Guerrier"],
+    xi:["Placide","Arcus","Duverne","Delcroix","Lacroix","Bellegarde","Pierrot","Belfort","Lafrance","Nazon","Saba"],
+    injured:[],
+    keyOut:[],
+    ppda:16.5, fieldTilt:35, setPieceXg:0.16,
+  },
+  "아이슬란드": {
+    coach:"아귀스트 길파손", formation:"4-4-2", group:"PO",
+    gk:["Hannes Halldórsson","Ingvar Jónsson","Óskar Hauksson"],
+    df:["Birkir Már Sævarsson","Ragnar Sigurdsson","Kári Árnason","Ari Freyr Skúlason","Hörður Björgvin Magnússon"],
+    mf:["Aron Gunnarsson","Gylfi Sigurdsson","Emil Hallfredsson","Birkir Bjarnason","Arnór Ingvi Traustason"],
+    fw:["Jón Dadi Bödvarsson","Albert Guðmundsson","Ágúst Hlynsson"],
+    xi:["Halldórsson","Sævarsson","Sigurdsson","Árnason","Skúlason","Gunnarsson","G.Sigurdsson","Bjarnason","Traustason","Bödvarsson","A.Guðmundsson"],
+    injured:[],
+    keyOut:[],
+    ppda:15.5, fieldTilt:37, setPieceXg:0.18,
+  },
+  "나이지리아": {
+    coach:"호세 페세이로", formation:"4-2-3-1", group:"PO",
+    gk:["Francis Uzoho","Maduka Okoye","John Noble"],
+    df:["Semi Ajayi","William Troost-Ekong","Chidozie Awaziem","Zaidu Sanusi","Ola Aina","Calvin Bassey","Jamilu Collins"],
+    mf:["Wilfred Ndidi","Frank Onyeka","Musa Barrow","Joe Aribo","Kelechi Iheanacho","Alex Iwobi"],
+    fw:["Victor Osimhen","Taiwo Awoniyi","Samuel Chukwueze","Ahmed Musa"],
+    xi:["Okoye","Aina","Troost-Ekong","Ajayi","Collins","Ndidi","Onyeka","Iwobi","Aribo","Osimhen","Chukwueze"],
+    injured:[],
+    keyOut:[],
+    ppda:12.5, fieldTilt:46, setPieceXg:0.27,
+  },
+  "코스타리카": {
+    coach:"구스타보 알파로", formation:"5-3-2", group:"PO",
+    gk:["Keylor Navas","Patrick Sequeira","Leonel Moreira"],
+    df:["Bryan Ruiz","Francisco Calvo","Juan Pablo Vargas","Óscar Duarte","Ronald Matarrita","Ian Lawrence"],
+    mf:["Celso Borges","Douglas Sequeira","Gerson Torres","Ulises Segura"],
+    fw:["Manfred Ugalde","Joel Campbell","Allan Cruz","Johan Venegas"],
+    xi:["Navas","Vargas","Duarte","Calvo","Matarrita","Borges","Sequeira","Torres","Ugalde","Campbell","Cruz"],
+    injured:[],
+    keyOut:[],
+    ppda:14.8, fieldTilt:40, setPieceXg:0.20,
+  },
+  "볼리비아": {
+    coach:"구스타보 코스타스", formation:"4-3-3", group:"PO",
+    gk:["Carlos Lampe","Guillermo Viscarra","Pablo Ramos"],
+    df:["Luis Haquín","José María Carrasco","Sebastián Reyes","Marvin Bejarano","Pablo Escobar"],
+    mf:["Ramiro Vaca","Erwin Saavedra","Fernando Saucedo","Víctor Abrego","Diego Bejarano"],
+    fw:["Rodrigo Ramallo","Marcelo Martins","Henry Vaca","Gabriel Moreno"],
+    xi:["Lampe","Carrasco","Haquín","Reyes","Bejarano","Vaca","Saavedra","Saucedo","Abrego","Ramallo","Martins"],
+    injured:[],
+    keyOut:[],
+    ppda:16.0, fieldTilt:36, setPieceXg:0.15,
+  },
+  "베네수엘라": {
+    coach:"페르난도 바티스타", formation:"4-4-2", group:"PO",
+    gk:["Wuilker Faríñez","Rafael Romo","Daniel Martínez"],
+    df:["Yordan Osorio","Mikel Villanueva","Alexander González","Adrián Martínez","Nahuel Ferraresi","Jon Aramburu"],
+    mf:["Tomás Rincón","Darwin Machís","Yangel Herrera","Yeferson Soteldo","Jefferson Savarino","Sergio Córdova"],
+    fw:["Salomón Rondón","Josef Martínez","Eduardo Bello","Jan Hurtado"],
+    xi:["Faríñez","Aramburu","González","Osorio","Villanueva","Rincón","Herrera","Machís","Soteldo","Rondón","J.Martínez"],
+    injured:[],
+    keyOut:[],
+    ppda:14.3, fieldTilt:41, setPieceXg:0.21,
+  },
+
+  // ── 일정 누락 보완: 예선 플레이오프 / 친선 16개팀 (group:"PO") ──
+  "중국": {
+    coach:"브랑코 이반코비치", formation:"4-2-3-1", group:"PO",
+    gk:["옌쥔링","왕다레이","류딩"],
+    df:["장린펑","주천제","웨이더","덩한원","장위닝","가오중신","장청"],
+    mf:["우시","셰펑페이","쉬하오양","가오톈위","황정위","차이후이캉"],
+    fw:["우레이","옌즈하오","린량밍","페이난"],
+    xi:["옌쥔링","장린펑","주천제","웨이더","덩한원","우시","셰펑페이","가오톈위","황정위","우레이","옌즈하오"],
+    injured:[], keyOut:[],
+    ppda:14.5, fieldTilt:41, setPieceXg:0.22,
+  },
+  "태국": {
+    coach:"마사타다 이시이", formation:"4-2-3-1", group:"PO",
+    gk:["친나퐁 우돔수크","카윈 타마삿","삭산 위리야웡"],
+    df:["티타퐁 누차른","파타옹 분마탄","코로키치 안논","사라치 윤위라이","엘리아스 도리"],
+    mf:["사릿 아디사이","차나팁 송크라신","통차이 사케","에카닛 파냐","솜퐁 솜퐁"],
+    fw:["티라톤 분마탄","수파차이 자이데드","무사시 스즈키","티라식 다른수안"],
+    xi:["친나퐁 우돔수크","티타퐁 누차른","파타옹 분마탄","코로키치 안논","사라치 윤위라이","사릿 아디사이","에카닛 파냐","차나팁 송크라신","통차이 사케","무사시 스즈키","티라식 다른수안"],
+    injured:[], keyOut:[],
+    ppda:15.5, fieldTilt:39, setPieceXg:0.19,
+  },
+  "인도네시아": {
+    coach:"파트리크 클루이베르트", formation:"4-3-3", group:"PO",
+    gk:["마르턴 파에스","에르난 할릴린트라","아디 사티야"],
+    df:["옐러 판 더 펜","미히 바티스타","칼빈 베르동크","산슈리 르스탈리아","라장 사우"],
+    mf:["토머스 도일","마르크 클록","이반 요르겐센","라피 산드리","리키 캄비아흐시"],
+    fw:["라파엘 스트럭","오제카 라마단","도위 잘스마","에르빈 자야"],
+    xi:["마르턴 파에스","옐러 판 더 펜","미히 바티스타","칼빈 베르동크","산슈리 르스탈리아","토머스 도일","마르크 클록","이반 요르겐센","라피 산드리","라파엘 스트럭","오제카 라마단"],
+    injured:[], keyOut:[],
+    ppda:16.5, fieldTilt:38, setPieceXg:0.18,
+  },
+  "모잠비크": {
+    coach:"크리스 데이비드", formation:"4-4-2", group:"PO",
+    gk:["빈센테 사세","헬데르 진다네"],
+    df:["레안드로 카에이로","도밍구스 키요노","스탠리 라야레토","미아투"],
+    mf:["아쿠나 나이","도디 림바","두토 파스칼","클레우손"],
+    fw:["젤바이로 하사니","마르쿠스 세마","도밍구스 마틴"],
+    xi:["빈센테 사세","레안드로 카에이로","도밍구스 키요노","스탠리 라야레토","미아투","아쿠나 나이","도디 림바","두토 파스칼","클레우손","젤바이로 하사니","마르쿠스 세마"],
+    injured:[], keyOut:[],
+    ppda:16.8, fieldTilt:38, setPieceXg:0.18,
+  },
+  "타지키스탄": {
+    coach:"페타르 세그르트", formation:"4-2-3-1", group:"PO",
+    gk:["루스람 야토예프","노조모프"],
+    df:["베흐루즈 바코조다","코디라드 에르가셰프","마누체흐르 사파로프","아크마드 샤리포프"],
+    mf:["마난시르 사이단노프","자비드 아흐라로프","바키예프","네마티 에호자"],
+    fw:["시즈코프","코마진","파르호드 바히도프"],
+    xi:["루스람 야토예프","베흐루즈 바코조다","코디라드 에르가셰프","마누체흐르 사파로프","아크마드 샤리포프","마난시르 사이단노프","자비드 아흐라로프","바키예프","네마티 에호자","시즈코프","코마진"],
+    injured:[], keyOut:[],
+    ppda:17.2, fieldTilt:36, setPieceXg:0.16,
+  },
+  "인도": {
+    coach:"마놀로 마르케스", formation:"4-2-3-1", group:"PO",
+    gk:["구르프리트 싱 산두","아밀 마르티네스"],
+    df:["산데시 정하","아카쉬 미슈라","라훌 바이코","안와르 알리"],
+    mf:["수닐 체트리","브랜던 페르난데스","아핀 비넷","라훌 K.P"],
+    fw:["라합 알리","라잔 다스","마놉지트 싱"],
+    xi:["구르프리트 싱 산두","산데시 정하","아카쉬 미슈라","라훌 바이코","안와르 알리","수닐 체트리","브랜던 페르난데스","아핀 비넷","라훌 K.P","라합 알리","라잔 다스"],
+    injured:[], keyOut:[],
+    ppda:16.2, fieldTilt:38, setPieceXg:0.18,
+  },
+  "아르메니아": {
+    coach:"옥산 미나샨", formation:"4-3-3", group:"PO",
+    gk:["헨리흐 아브라먄","아라스 외즈비리치"],
+    df:["바를람 그리고랸","호바네스 하르티르탸","타란 마니치얀","데이비드 카날로사얀"],
+    mf:["헨리크 므키타랸","에두아르드 스파르탁","그란트 레돈","게오르기 메르히얀"],
+    fw:["추아 페트로시얀","알릭 아루티우냔","자노젠 카자랸"],
+    xi:["헨리흐 아브라먄","바를람 그리고랸","호바네스 하르티르탸","타란 마니치얀","데이비드 카날로사얀","헨리크 므키타랸","에두아르드 스파르탁","그란트 레돈","게오르기 메르히얀","추아 페트로시얀","알릭 아루티우냔"],
+    injured:[], keyOut:[],
+    ppda:14.6, fieldTilt:41, setPieceXg:0.22,
+  },
+  "몰도바": {
+    coach:"세르게이 클레쉬첸코", formation:"4-4-2", group:"PO",
+    gk:["카쿠셰프","미하일 코발"],
+    df:["빅토르 보그다누","막심 안톤","알렉산드루 곤차","드미트리 라쿠"],
+    mf:["비탈리에 다미안","니콜라이 케슈코","알렉산두르 코지오크","아르투르 크라이오베아누"],
+    fw:["이온 니콜라에스쿠","옥타비안 미트리타","빅토르 미하일로프"],
+    xi:["카쿠셰프","빅토르 보그다누","막심 안톤","알렉산드루 곤차","드미트리 라쿠","비탈리에 다미안","니콜라이 케슈코","알렉산두르 코지오크","아르투르 크라이오베아누","이온 니콜라에스쿠","옥타비안 미트리타"],
+    injured:[], keyOut:[],
+    ppda:17.3, fieldTilt:36, setPieceXg:0.16,
+  },
+  "벨라루스": {
+    coach:"카렌 토차르얀", formation:"4-2-3-1", group:"PO",
+    gk:["안드레이 클레쉬첸코","데니스 시추크"],
+    df:["데니스 라푸타","일리야 시콜렌코","알렉산드르 마르틴","데니스 폴랴코프"],
+    mf:["이고리 스타세비치","막심 비탈리","율리야 흐레보","니키타 노비코프"],
+    fw:["비탈리 린첸코","안톤 사로카","막심 스코베"],
+    xi:["안드레이 클레쉬첸코","데니스 라푸타","일리야 시콜렌코","알렉산드르 마르틴","데니스 폴랴코프","이고리 스타세비치","막심 비탈리","율리야 흐레보","니키타 노비코프","비탈리 린첸코","안톤 사로카"],
+    injured:[], keyOut:[],
+    ppda:14.9, fieldTilt:40, setPieceXg:0.21,
+  },
+  "부르키나파소": {
+    coach:"브라마 트라오레", formation:"4-3-3", group:"PO",
+    gk:["헤르베 코프","아부바카르 카발레"],
+    df:["이사 카보레","스티브 야고","에드몽 타피소우","압둘 카림 단다"],
+    mf:["블라티 투레","가스톤 샤를 신데","이브라힘 음바 콩고","모하메드 콘델"],
+    fw:["베르트랑 트라오레","단 카밧","이사크 레흐비브"],
+    xi:["헤르베 코프","이사 카보레","스티브 야고","에드몽 타피소우","압둘 카림 단다","블라티 투레","가스톤 샤를 신데","이브라힘 음바 콩고","모하메드 콘델","베르트랑 트라오레","단 카밧"],
+    injured:[], keyOut:[],
+    ppda:14.0, fieldTilt:42, setPieceXg:0.23,
+  },
+  "러시아": {
+    coach:"발레리 카르핀", formation:"4-2-3-1", group:"PO",
+    gk:["마트베이 사프로노프","안드레이 류네프"],
+    df:["게오르기 주카크","일리야 바키니","율리안 스미르노프","막심 오스마노프"],
+    mf:["표도르 추할로프","다닐 글루신코프","알렉세이 미란추크","표도르 스몰로프"],
+    fw:["알렉산드르 골로빈","표도르 추프린","안톤 자비르"],
+    xi:["마트베이 사프로노프","게오르기 주카크","일리야 바키니","율리안 스미르노프","막심 오스마노프","표도르 추할로프","다닐 글루신코프","알렉세이 미란추크","표도르 스몰로프","알렉산드르 골로빈","표도르 추프린"],
+    injured:[], keyOut:[],
+    ppda:12.5, fieldTilt:46, setPieceXg:0.27,
+  },
+  "트리니다드토바고": {
+    coach:"데일 새치", formation:"4-4-2", group:"PO",
+    gk:["마크 빌헬름","데니스 챈더"],
+    df:["알베르 잭","라이언 만데르","알렉스 드 그라사","카메론 니콜"],
+    mf:["캐쉴 헥터","듀크 펀","카일 진","로니 메르시"],
+    fw:["니콜라스 디자르딘","레비 가르시아","라이언 하인즈"],
+    xi:["마크 빌헬름","알베르 잭","라이언 만데르","알렉스 드 그라사","카메론 니콜","캐쉴 헥터","듀크 펀","카일 진","로니 메르시","니콜라스 디자르딘","레비 가르시아"],
+    injured:[], keyOut:[],
+    ppda:16.4, fieldTilt:38, setPieceXg:0.18,
+  },
+  "헝가리": {
+    coach:"마르코 로시", formation:"4-2-3-1", group:"PO",
+    gk:["페테르 굴라치","데네스 디브스키"],
+    df:["아틸라 실라기","빌리 오르반","아틸라 피슈고","졸트 나지"],
+    mf:["아담 너기","라슬로 케레스테시","칼만 켈러"],
+    fw:["도미니크 손가","롤란드 사라이","바르나바스 바르가"],
+    xi:["페테르 굴라치","아틸라 실라기","빌리 오르반","아틸라 피슈고","졸트 나지","아담 너기","라슬로 케레스테시","칼만 켈러","도미니크 손가","롤란드 사라이","바르나바스 바르가"],
+    injured:[], keyOut:[],
+    ppda:12.8, fieldTilt:45, setPieceXg:0.26,
+  },
+  "카자흐스탄": {
+    coach:"막심 사메첸코", formation:"4-2-3-1", group:"PO",
+    gk:["이고리 다리우신","미카일 시도렌코"],
+    df:["유리 페르티","누랄리 알리프","드미트리 셰뮤크","바우르잔 자크산"],
+    mf:["바우르잔 이슬람칸","압자르 베이세보프","일자트 아흐메토프"],
+    fw:["압바스 안디바예프","다스탄 사타예프","마라트 시즈디코프"],
+    xi:["이고리 다리우신","유리 페르티","누랄리 알리프","드미트리 셰뮤크","바우르잔 자크산","바우르잔 이슬람칸","압자르 베이세보프","일자트 아흐메토프","압바스 안디바예프","다스탄 사타예프","마라트 시즈디코프"],
+    injured:[], keyOut:[],
+    ppda:15.4, fieldTilt:39, setPieceXg:0.19,
+  },
+  "아제르바이잔": {
+    coach:"카밀 무라드제", formation:"4-2-3-1", group:"PO",
+    gk:["셰몬 메흐타예프","아흐메도프"],
+    df:["바딤 자이체프","바흐티야르 솜레치","마하무드구세이노프","엘비르 라히모프"],
+    mf:["아바스 후세이노프","라민 구르바노프","타라르 압바소프"],
+    fw:["마흐마드 히마예드","윌리엄 페트로","아드리안 가시모프"],
+    xi:["셰몬 메흐타예프","바딤 자이체프","바흐티야르 솜레치","마하무드구세이노프","엘비르 라히모프","아바스 후세이노프","라민 구르바노프","타라르 압바소프","마흐마드 히마예드","윌리엄 페트로","아드리안 가시모프"],
+    injured:[], keyOut:[],
+    ppda:16.3, fieldTilt:38, setPieceXg:0.18,
+  },
+  "산마리노": {
+    coach:"로베르토 체키", formation:"5-4-1", group:"PO",
+    gk:["엘리아 베네데티니","아담 셀바"],
+    df:["다비데 시몬첼리","알레산드로 골리니","미르코 팔라치","파브로치니","엔리코 길라르디"],
+    mf:["마테오 비안치","알렉스 갈","마르첼로 마초니","마테오 비탈리"],
+    fw:["니콜로 키아렐로","알레산드로 골리니"],
+    xi:["엘리아 베네데티니","다비데 시몬첼리","알레산드로 골리니","미르코 팔라치","파브로치니","엔리코 길라르디","마테오 비안치","알렉스 갈","마르첼로 마초니","마테오 비탈리","니콜로 키아렐로"],
+    injured:[], keyOut:[],
+    ppda:19.5, fieldTilt:25, setPieceXg:0.08,
+  },
+};
+
+// ─── HYBRID ELO DATA (8-stage model) ────────────────────────
+// + 일정 누락 16개팀 ELO 추가 (SPI 기반 보간: base ≈ 506 + 14.65×SPI)
+const ELO = {
+  "브라질":     {base:1820,xgElo:1810,atk:1780,def:1770,form:1800,market:1790,player:1810,xG:2.18,xGA:0.78,npXg:2.05,ppda:8.2,fieldTilt:58,setPxg:0.38,formArr:[1,1,1,0,1],fatigue:0,injuries:2},
+  "프랑스":     {base:1810,xgElo:1800,atk:1760,def:1780,form:1790,market:1800,player:1800,xG:2.15,xGA:0.82,npXg:2.02,ppda:7.1,fieldTilt:61,setPxg:0.44,formArr:[1,1,1,1,1],fatigue:0,injuries:0},
+  "스페인":     {base:1790,xgElo:1800,atk:1750,def:1760,form:1800,market:1780,player:1780,xG:2.22,xGA:0.80,npXg:2.10,ppda:6.3,fieldTilt:65,setPxg:0.41,formArr:[1,1,1,1,1],fatigue:0,injuries:2},
+  "아르헨티나":  {base:1800,xgElo:1790,atk:1770,def:1740,form:1780,market:1800,player:1800,xG:2.10,xGA:0.85,npXg:1.98,ppda:9.1,fieldTilt:56,setPxg:0.35,formArr:[1,1,1,1,0],fatigue:0,injuries:1},
+  "잉글랜드":   {base:1770,xgElo:1760,atk:1740,def:1740,form:1760,market:1760,player:1770,xG:2.05,xGA:0.88,npXg:1.95,ppda:8.8,fieldTilt:57,setPxg:0.39,formArr:[1,1,1,1,1],fatigue:0,injuries:0},
+  "독일":       {base:1740,xgElo:1750,atk:1730,def:1700,form:1750,market:1730,player:1740,xG:1.98,xGA:0.92,npXg:1.88,ppda:7.8,fieldTilt:59,setPxg:0.36,formArr:[1,1,1,0,1],fatigue:0,injuries:1},
+  "포르투갈":   {base:1730,xgElo:1720,atk:1720,def:1680,form:1720,market:1720,player:1740,xG:1.95,xGA:0.95,npXg:1.82,ppda:8.5,fieldTilt:55,setPxg:0.37,formArr:[1,1,1,0,1],fatigue:0,injuries:0},
+  "네덜란드":   {base:1720,xgElo:1730,atk:1700,def:1720,form:1710,market:1710,player:1720,xG:1.92,xGA:0.90,npXg:1.80,ppda:8.0,fieldTilt:60,setPxg:0.40,formArr:[1,1,1,1,1],fatigue:0,injuries:1},
+  "벨기에":     {base:1690,xgElo:1680,atk:1680,def:1650,form:1660,market:1680,player:1700,xG:1.88,xGA:0.98,npXg:1.75,ppda:9.3,fieldTilt:54,setPxg:0.33,formArr:[1,1,0,1,1],fatigue:0,injuries:1},
+  "크로아티아":  {base:1650,xgElo:1640,atk:1620,def:1640,form:1630,market:1640,player:1650,xG:1.75,xGA:1.05,npXg:1.65,ppda:10.2,fieldTilt:51,setPxg:0.29,formArr:[1,0,1,1,1],fatigue:0,injuries:0},
+  "대한민국":   {base:1560,xgElo:1570,atk:1550,def:1530,form:1560,market:1540,player:1580,xG:1.72,xGA:1.08,npXg:1.62,ppda:11.5,fieldTilt:48,setPxg:0.28,formArr:[1,1,0,1,1],fatigue:0,injuries:1},
+  "일본":       {base:1570,xgElo:1580,atk:1560,def:1570,form:1570,market:1550,player:1560,xG:1.68,xGA:1.05,npXg:1.58,ppda:9.8,fieldTilt:53,setPxg:0.31,formArr:[1,1,0,1,0],fatigue:0,injuries:0},
+  "모로코":     {base:1600,xgElo:1590,atk:1560,def:1620,form:1580,market:1580,player:1590,xG:1.65,xGA:0.88,npXg:1.55,ppda:12.1,fieldTilt:46,setPxg:0.27,formArr:[1,1,0,1,1],fatigue:0,injuries:0},
+  "세네갈":     {base:1600,xgElo:1590,atk:1580,def:1570,form:1580,market:1590,player:1600,xG:1.82,xGA:0.92,npXg:1.70,ppda:13.2,fieldTilt:44,setPxg:0.25,formArr:[1,1,0,1,1],fatigue:0,injuries:0},
+  "미국":       {base:1600,xgElo:1610,atk:1590,def:1580,form:1590,market:1590,player:1600,xG:1.78,xGA:1.00,npXg:1.65,ppda:10.8,fieldTilt:50,setPxg:0.32,formArr:[1,1,1,0,1],fatigue:0,injuries:2},
+  "캐나다":     {base:1550,xgElo:1560,atk:1540,def:1520,form:1540,market:1530,player:1550,xG:1.65,xGA:1.05,npXg:1.55,ppda:11.2,fieldTilt:49,setPxg:0.30,formArr:[1,0,1,1,0],fatigue:0,injuries:0},
+  "멕시코":     {base:1540,xgElo:1530,atk:1530,def:1500,form:1510,market:1530,player:1540,xG:1.62,xGA:1.10,npXg:1.52,ppda:11.8,fieldTilt:47,setPxg:0.26,formArr:[1,0,0,1,1],fatigue:0,injuries:1},
+  "콜롬비아":   {base:1610,xgElo:1600,atk:1600,def:1580,form:1590,market:1600,player:1610,xG:1.85,xGA:0.95,npXg:1.75,ppda:10.5,fieldTilt:52,setPxg:0.33,formArr:[1,1,0,1,1],fatigue:0,injuries:0},
+  "우루과이":   {base:1590,xgElo:1580,atk:1570,def:1600,form:1570,market:1580,player:1580,xG:1.72,xGA:0.98,npXg:1.62,ppda:10.9,fieldTilt:51,setPxg:0.30,formArr:[1,1,0,1,1],fatigue:0,injuries:0},
+  "알제리":     {base:1490,xgElo:1480,atk:1480,def:1460,form:1480,market:1470,player:1480,xG:1.52,xGA:1.18,npXg:1.42,ppda:13.5,fieldTilt:43,setPxg:0.24,formArr:[1,0,1,1,0],fatigue:0,injuries:0},
+  "오스트리아":  {base:1510,xgElo:1500,atk:1490,def:1490,form:1500,market:1490,player:1500,xG:1.55,xGA:1.12,npXg:1.45,ppda:11.0,fieldTilt:50,setPxg:0.29,formArr:[1,0,1,1,0],fatigue:0,injuries:0},
+  "요르단":     {base:1380,xgElo:1370,atk:1360,def:1370,form:1380,market:1360,player:1370,xG:1.25,xGA:1.35,npXg:1.15,ppda:16.2,fieldTilt:37,setPxg:0.19,formArr:[1,0,1,1,0],fatigue:0,injuries:0},
+  "이란":       {base:1480,xgElo:1470,atk:1460,def:1490,form:1470,market:1460,player:1470,xG:1.48,xGA:1.05,npXg:1.38,ppda:14.8,fieldTilt:40,setPxg:0.22,formArr:[1,1,0,0,1],fatigue:0,injuries:0},
+  "이집트":     {base:1470,xgElo:1460,atk:1470,def:1440,form:1460,market:1460,player:1480,xG:1.55,xGA:1.15,npXg:1.45,ppda:13.9,fieldTilt:42,setPxg:0.23,formArr:[1,0,1,1,0],fatigue:0,injuries:0},
+  "뉴질랜드":   {base:1310,xgElo:1300,atk:1290,def:1310,form:1300,market:1290,player:1300,xG:1.15,xGA:1.42,npXg:1.05,ppda:16.8,fieldTilt:36,setPxg:0.17,formArr:[0,1,0,1,0],fatigue:0,injuries:0},
+  "노르웨이":   {base:1610,xgElo:1620,atk:1630,def:1580,form:1610,market:1610,player:1610,xG:1.98,xGA:1.02,npXg:1.85,ppda:9.5,fieldTilt:54,setPxg:0.36,formArr:[1,1,0,1,1],fatigue:0,injuries:0},
+  "이라크":     {base:1380,xgElo:1370,atk:1360,def:1360,form:1370,market:1350,player:1360,xG:1.28,xGA:1.32,npXg:1.18,ppda:15.5,fieldTilt:38,setPxg:0.20,formArr:[1,0,1,0,1],fatigue:0,injuries:0},
+  "보스니아":   {base:1430,xgElo:1420,atk:1410,def:1400,form:1420,market:1400,player:1420,xG:1.35,xGA:1.22,npXg:1.25,ppda:12.8,fieldTilt:45,setPxg:0.26,formArr:[1,1,0,0,1],fatigue:0,injuries:0},
+  "스위스":     {base:1540,xgElo:1530,atk:1510,def:1540,form:1520,market:1520,player:1520,xG:1.58,xGA:1.02,npXg:1.48,ppda:10.3,fieldTilt:52,setPxg:0.31,formArr:[1,1,0,1,1],fatigue:0,injuries:0},
+  "카타르":     {base:1360,xgElo:1350,atk:1340,def:1350,form:1350,market:1330,player:1340,xG:1.18,xGA:1.38,npXg:1.08,ppda:15.1,fieldTilt:39,setPxg:0.21,formArr:[0,1,0,1,0],fatigue:0,injuries:0},
+  "체코":       {base:1440,xgElo:1450,atk:1430,def:1420,form:1440,market:1420,player:1430,xG:1.42,xGA:1.15,npXg:1.32,ppda:12.0,fieldTilt:47,setPxg:0.27,formArr:[1,0,1,1,0],fatigue:0,injuries:0},
+  "남아프리카공화국":{base:1380,xgElo:1370,atk:1360,def:1360,form:1370,market:1350,player:1360,xG:1.25,xGA:1.32,npXg:1.15,ppda:14.5,fieldTilt:41,setPxg:0.21,formArr:[0,1,0,0,1],fatigue:0,injuries:0},
+  "카보베르데":  {base:1300,xgElo:1290,atk:1280,def:1290,form:1290,market:1270,player:1280,xG:1.08,xGA:1.45,npXg:0.98,ppda:15.8,fieldTilt:38,setPxg:0.18,formArr:[0,1,0,1,0],fatigue:0,injuries:0},
+  "사우디아라비아":{base:1420,xgElo:1410,atk:1400,def:1390,form:1410,market:1400,player:1410,xG:1.38,xGA:1.22,npXg:1.28,ppda:13.7,fieldTilt:43,setPxg:0.22,formArr:[1,0,0,1,1],fatigue:0,injuries:0},
+  "호주":       {base:1450,xgElo:1440,atk:1420,def:1450,form:1440,market:1430,player:1440,xG:1.42,xGA:1.08,npXg:1.32,ppda:13.0,fieldTilt:45,setPxg:0.24,formArr:[1,0,1,1,0],fatigue:0,injuries:0},
+  "튀르키예":   {base:1500,xgElo:1490,atk:1490,def:1470,form:1490,market:1480,player:1490,xG:1.52,xGA:1.12,npXg:1.42,ppda:11.5,fieldTilt:49,setPxg:0.30,formArr:[1,1,0,1,0],fatigue:0,injuries:0},
+  "파라과이":   {base:1410,xgElo:1400,atk:1390,def:1410,form:1400,market:1390,player:1400,xG:1.32,xGA:1.25,npXg:1.22,ppda:14.2,fieldTilt:40,setPxg:0.20,formArr:[1,0,0,1,0],fatigue:0,injuries:0},
+  "가나":       {base:1440,xgElo:1430,atk:1420,def:1420,form:1430,market:1420,player:1430,xG:1.38,xGA:1.18,npXg:1.28,ppda:13.3,fieldTilt:44,setPxg:0.23,formArr:[1,1,0,1,0],fatigue:0,injuries:0},
+  "파나마":     {base:1360,xgElo:1350,atk:1340,def:1350,form:1350,market:1330,player:1340,xG:1.15,xGA:1.38,npXg:1.05,ppda:15.2,fieldTilt:38,setPxg:0.18,formArr:[1,0,0,1,0],fatigue:0,injuries:0},
+  "에콰도르":   {base:1470,xgElo:1460,atk:1450,def:1440,form:1460,market:1450,player:1460,xG:1.48,xGA:1.18,npXg:1.38,ppda:12.4,fieldTilt:46,setPxg:0.26,formArr:[1,1,0,0,1],fatigue:0,injuries:0},
+  "코트디부아르":{base:1510,xgElo:1500,atk:1500,def:1480,form:1500,market:1490,player:1500,xG:1.58,xGA:1.08,npXg:1.48,ppda:12.6,fieldTilt:47,setPxg:0.27,formArr:[1,1,0,1,1],fatigue:0,injuries:0},
+  "퀴라소":     {base:1250,xgElo:1240,atk:1230,def:1250,form:1240,market:1220,player:1230,xG:0.98,xGA:1.55,npXg:0.88,ppda:16.0,fieldTilt:36,setPxg:0.17,formArr:[0,1,0,0,1],fatigue:0,injuries:0},
+  "스웨덴":     {base:1570,xgElo:1560,atk:1570,def:1540,form:1560,market:1550,player:1560,xG:1.78,xGA:1.02,npXg:1.68,ppda:10.8,fieldTilt:51,setPxg:0.32,formArr:[1,1,1,0,1],fatigue:0,injuries:0},
+  "튀니지":     {base:1400,xgElo:1390,atk:1380,def:1400,form:1390,market:1380,player:1390,xG:1.28,xGA:1.22,npXg:1.18,ppda:14.0,fieldTilt:41,setPxg:0.22,formArr:[1,0,0,1,1],fatigue:0,injuries:0},
+  "스코틀랜드":  {base:1430,xgElo:1420,atk:1410,def:1420,form:1420,market:1410,player:1420,xG:1.32,xGA:1.22,npXg:1.22,ppda:12.9,fieldTilt:45,setPxg:0.25,formArr:[1,0,1,0,1],fatigue:0,injuries:0},
+  "아이티":     {base:1290,xgElo:1280,atk:1270,def:1280,form:1280,market:1260,player:1270,xG:1.05,xGA:1.52,npXg:0.95,ppda:16.5,fieldTilt:35,setPxg:0.16,formArr:[1,0,1,0,0],fatigue:0,injuries:0},
+  "콩고민주공화국":{base:1410,xgElo:1400,atk:1390,def:1390,form:1400,market:1380,player:1390,xG:1.32,xGA:1.25,npXg:1.22,ppda:14.5,fieldTilt:40,setPxg:0.21,formArr:[1,0,1,0,1],fatigue:0,injuries:0},
+  "우즈베키스탄": {base:1390,xgElo:1380,atk:1370,def:1380,form:1380,market:1360,player:1370,xG:1.28,xGA:1.15,npXg:1.18,ppda:15.0,fieldTilt:39,setPxg:0.19,formArr:[1,0,1,1,0],fatigue:0,injuries:0},
+  "아이슬란드":  {base:1320,xgElo:1310,atk:1300,def:1310,form:1310,market:1290,player:1300,xG:1.12,xGA:1.42,npXg:1.02,ppda:15.5,fieldTilt:37,setPxg:0.18,formArr:[0,1,0,0,0],fatigue:0,injuries:0},
+  "나이지리아":  {base:1450,xgElo:1440,atk:1440,def:1420,form:1440,market:1430,player:1450,xG:1.45,xGA:1.18,npXg:1.35,ppda:12.5,fieldTilt:46,setPxg:0.27,formArr:[1,0,1,0,1],fatigue:0,injuries:0},
+  "코스타리카":  {base:1340,xgElo:1330,atk:1320,def:1340,form:1330,market:1310,player:1320,xG:1.12,xGA:1.32,npXg:1.02,ppda:14.8,fieldTilt:40,setPxg:0.20,formArr:[0,1,0,0,0],fatigue:0,injuries:0},
+  "볼리비아":   {base:1240,xgElo:1230,atk:1220,def:1230,form:1230,market:1210,player:1220,xG:0.95,xGA:1.58,npXg:0.85,ppda:16.0,fieldTilt:36,setPxg:0.15,formArr:[0,0,0,1,0],fatigue:0,injuries:0},
+  "베네수엘라":  {base:1340,xgElo:1330,atk:1320,def:1330,form:1330,market:1310,player:1330,xG:1.15,xGA:1.32,npXg:1.05,ppda:14.3,fieldTilt:41,setPxg:0.21,formArr:[0,1,0,0,1],fatigue:0,injuries:0},
+
+  // ── 일정 누락 16개팀 (SPI 보간 base, xG=off+0.15, xGA=def-0.45, npXg=xG-0.10) ──
+  "중국":         {base:1282,xgElo:1272,atk:1262,def:1282,form:1272,market:1252,player:1262,xG:1.05,xGA:1.45,npXg:0.95,ppda:14.5,fieldTilt:41,setPxg:0.22,formArr:[1,0,0,1,0],fatigue:0,injuries:0},
+  "태국":         {base:1217,xgElo:1207,atk:1197,def:1217,form:1207,market:1187,player:1197,xG:0.95,xGA:1.55,npXg:0.85,ppda:15.5,fieldTilt:39,setPxg:0.19,formArr:[0,1,0,0,1],fatigue:0,injuries:0},
+  "인도네시아":   {base:1165,xgElo:1155,atk:1145,def:1165,form:1155,market:1135,player:1145,xG:0.85,xGA:1.65,npXg:0.75,ppda:16.5,fieldTilt:38,setPxg:0.18,formArr:[0,0,1,0,1],fatigue:0,injuries:0},
+  "모잠비크":     {base:1158,xgElo:1148,atk:1138,def:1158,form:1148,market:1128,player:1138,xG:0.95,xGA:1.65,npXg:0.85,ppda:16.8,fieldTilt:38,setPxg:0.18,formArr:[0,1,0,0,0],fatigue:0,injuries:0},
+  "타지키스탄":   {base:1121,xgElo:1111,atk:1101,def:1121,form:1111,market:1091,player:1101,xG:0.85,xGA:1.65,npXg:0.75,ppda:17.2,fieldTilt:36,setPxg:0.16,formArr:[0,0,1,0,0],fatigue:0,injuries:0},
+  "아르메니아":   {base:1275,xgElo:1265,atk:1255,def:1275,form:1265,market:1245,player:1255,xG:1.05,xGA:1.45,npXg:0.95,ppda:14.6,fieldTilt:41,setPxg:0.22,formArr:[1,1,0,0,1],fatigue:0,injuries:0},
+  "몰도바":       {base:1114,xgElo:1104,atk:1094,def:1114,form:1104,market:1084,player:1094,xG:0.85,xGA:1.75,npXg:0.75,ppda:17.3,fieldTilt:36,setPxg:0.16,formArr:[0,0,0,1,0],fatigue:0,injuries:0},
+  "벨라루스":     {base:1253,xgElo:1243,atk:1233,def:1253,form:1243,market:1223,player:1233,xG:1.05,xGA:1.45,npXg:0.95,ppda:14.9,fieldTilt:40,setPxg:0.21,formArr:[1,0,0,1,0],fatigue:0,injuries:0},
+  "헝가리":       {base:1429,xgElo:1419,atk:1409,def:1429,form:1419,market:1399,player:1409,xG:1.35,xGA:1.25,npXg:1.25,ppda:12.8,fieldTilt:45,setPxg:0.26,formArr:[1,1,0,1,0],fatigue:0,injuries:0},
+  "카자흐스탄":   {base:1224,xgElo:1214,atk:1204,def:1224,form:1214,market:1194,player:1204,xG:0.95,xGA:1.55,npXg:0.85,ppda:15.4,fieldTilt:39,setPxg:0.19,formArr:[0,1,0,1,0],fatigue:0,injuries:0},
+  "아제르바이잔": {base:1180,xgElo:1170,atk:1160,def:1180,form:1170,market:1150,player:1160,xG:0.95,xGA:1.65,npXg:0.85,ppda:16.3,fieldTilt:38,setPxg:0.18,formArr:[0,0,1,0,0],fatigue:0,injuries:0},
+  "러시아":       {base:1451,xgElo:1441,atk:1431,def:1451,form:1441,market:1421,player:1431,xG:1.45,xGA:1.15,npXg:1.35,ppda:12.5,fieldTilt:46,setPxg:0.27,formArr:[1,1,0,1,1],fatigue:0,injuries:0},
+  "트리니다드토바고":{base:1173,xgElo:1163,atk:1153,def:1173,form:1163,market:1143,player:1153,xG:0.95,xGA:1.65,npXg:0.85,ppda:16.4,fieldTilt:38,setPxg:0.18,formArr:[0,0,0,1,0],fatigue:0,injuries:0},
+  "인도":         {base:1187,xgElo:1177,atk:1167,def:1187,form:1177,market:1157,player:1167,xG:0.95,xGA:1.55,npXg:0.85,ppda:16.2,fieldTilt:38,setPxg:0.18,formArr:[0,1,0,1,0],fatigue:0,injuries:0},
+  "부르키나파소": {base:1312,xgElo:1302,atk:1292,def:1312,form:1302,market:1282,player:1292,xG:1.15,xGA:1.45,npXg:1.05,ppda:14.0,fieldTilt:42,setPxg:0.23,formArr:[1,0,1,1,0],fatigue:0,injuries:0},
+  "산마리노":     {base:799,xgElo:789,atk:769,def:799,form:789,market:769,player:769,xG:0.45,xGA:3.05,npXg:0.35,ppda:19.5,fieldTilt:25,setPxg:0.08,formArr:[0,0,0,0,0],fatigue:0,injuries:0},
+};
+
+// ─── SCHEDULE ────────────────────────────────────────────────
+const SCHEDULE = [
+  {date:"2026-06-12",time:"04:00",home:"멕시코",away:"남아프리카공화국"},
+  {date:"2026-06-12",time:"11:00",home:"대한민국",away:"체코"},
+  {date:"2026-06-13",time:"04:00",home:"캐나다",away:"보스니아"},
+  {date:"2026-06-13",time:"10:00",home:"미국",away:"파라과이"},
+  {date:"2026-06-14",time:"04:00",home:"카타르",away:"스위스"},
+  {date:"2026-06-14",time:"07:00",home:"브라질",away:"모로코"},
+  {date:"2026-06-14",time:"10:00",home:"아이티",away:"스코틀랜드"},
+  {date:"2026-06-14",time:"13:00",home:"호주",away:"튀르키예"},
+  {date:"2026-06-15",time:"02:00",home:"독일",away:"퀴라소"},
+  {date:"2026-06-15",time:"05:00",home:"네덜란드",away:"일본"},
+  {date:"2026-06-15",time:"08:00",home:"코트디부아르",away:"에콰도르"},
+  {date:"2026-06-15",time:"11:00",home:"스웨덴",away:"튀니지"},
+  {date:"2026-06-16",time:"01:00",home:"스페인",away:"카보베르데"},
+  {date:"2026-06-16",time:"04:00",home:"벨기에",away:"이집트"},
+  {date:"2026-06-16",time:"07:00",home:"사우디아라비아",away:"우루과이"},
+  {date:"2026-06-16",time:"10:00",home:"이란",away:"뉴질랜드"},
+  {date:"2026-06-17",time:"04:00",home:"프랑스",away:"세네갈"},
+  {date:"2026-06-17",time:"07:00",home:"이라크",away:"노르웨이"},
+  {date:"2026-06-17",time:"10:00",home:"아르헨티나",away:"알제리"},
+  {date:"2026-06-17",time:"13:00",home:"오스트리아",away:"요르단"},
+  {date:"2026-06-18",time:"02:00",home:"포르투갈",away:"콩고민주공화국"},
+  {date:"2026-06-18",time:"05:00",home:"잉글랜드",away:"크로아티아"},
+  {date:"2026-06-18",time:"08:00",home:"가나",away:"파나마"},
+  {date:"2026-06-18",time:"11:00",home:"우즈베키스탄",away:"콜롬비아"},
+  {date:"2026-06-19",time:"01:00",home:"체코",away:"남아프리카공화국"},
+  {date:"2026-06-19",time:"04:00",home:"스위스",away:"보스니아"},
+  {date:"2026-06-19",time:"07:00",home:"캐나다",away:"카타르"},
+  {date:"2026-06-19",time:"10:00",home:"멕시코",away:"대한민국"},
+  {date:"2026-06-20",time:"04:00",home:"미국",away:"호주"},
+  {date:"2026-06-20",time:"07:00",home:"스코틀랜드",away:"모로코"},
+  {date:"2026-06-20",time:"09:30",home:"브라질",away:"아이티"},
+  {date:"2026-06-20",time:"12:00",home:"튀르키예",away:"파라과이"},
+  {date:"2026-06-21",time:"02:00",home:"네덜란드",away:"스웨덴"},
+  {date:"2026-06-21",time:"05:00",home:"독일",away:"코트디부아르"},
+  {date:"2026-06-21",time:"09:00",home:"에콰도르",away:"퀴라소"},
+  {date:"2026-06-21",time:"13:00",home:"튀니지",away:"일본"},
+  {date:"2026-06-22",time:"01:00",home:"스페인",away:"사우디아라비아"},
+  {date:"2026-06-22",time:"04:00",home:"벨기에",away:"이란"},
+  {date:"2026-06-22",time:"07:00",home:"우루과이",away:"카보베르데"},
+  {date:"2026-06-22",time:"10:00",home:"뉴질랜드",away:"이집트"},
+  {date:"2026-06-23",time:"02:00",home:"아르헨티나",away:"오스트리아"},
+  {date:"2026-06-23",time:"06:00",home:"프랑스",away:"이라크"},
+  {date:"2026-06-23",time:"09:00",home:"노르웨이",away:"세네갈"},
+  {date:"2026-06-23",time:"12:00",home:"요르단",away:"알제리"},
+  {date:"2026-06-24",time:"02:00",home:"포르투갈",away:"우즈베키스탄"},
+  {date:"2026-06-24",time:"05:00",home:"잉글랜드",away:"가나"},
+  {date:"2026-06-24",time:"08:00",home:"파나마",away:"크로아티아"},
+  {date:"2026-06-24",time:"11:00",home:"콜롬비아",away:"콩고민주공화국"},
+  {date:"2026-06-25",time:"04:00",home:"스위스",away:"캐나다"},
+  {date:"2026-06-25",time:"04:00",home:"보스니아",away:"카타르"},
+  {date:"2026-06-25",time:"07:00",home:"스코틀랜드",away:"브라질"},
+  {date:"2026-06-25",time:"10:00",home:"남아프리카공화국",away:"대한민국"},
+  {date:"2026-06-25",time:"10:00",home:"체코",away:"멕시코"},
+  {date:"2026-06-26",time:"05:00",home:"퀴라소",away:"코트디부아르"},
+  {date:"2026-06-26",time:"05:00",home:"에콰도르",away:"독일"},
+  {date:"2026-06-26",time:"08:00",home:"튀니지",away:"네덜란드"},
+  {date:"2026-06-26",time:"08:00",home:"일본",away:"스웨덴"},
+  {date:"2026-06-26",time:"11:00",home:"파라과이",away:"호주"},
+  {date:"2026-06-26",time:"11:00",home:"튀르키예",away:"미국"},
+  {date:"2026-06-27",time:"04:00",home:"세네갈",away:"이라크"},
+  {date:"2026-06-27",time:"04:00",home:"노르웨이",away:"프랑스"},
+  {date:"2026-06-27",time:"09:00",home:"우루과이",away:"스페인"},
+  {date:"2026-06-27",time:"09:00",home:"카보베르데",away:"사우디아라비아"},
+  {date:"2026-06-27",time:"12:00",home:"뉴질랜드",away:"벨기에"},
+  {date:"2026-06-27",time:"12:00",home:"이집트",away:"이란"},
+  {date:"2026-06-28",time:"06:00",home:"파나마",away:"잉글랜드"},
+  {date:"2026-06-28",time:"06:00",home:"크로아티아",away:"가나"},
+  {date:"2026-06-28",time:"08:30",home:"콜롬비아",away:"포르투갈"},
+  {date:"2026-06-28",time:"08:30",home:"콩고민주공화국",away:"우즈베키스탄"},
+  {date:"2026-06-28",time:"11:00",home:"요르단",away:"아르헨티나"},
+  {date:"2026-06-28",time:"11:00",home:"알제리",away:"오스트리아"},
+];
+
+// ═══════════════════════════════════════════════════════════
+// 🔬 교차검증 모듈 — FiveThirtyEight SPI / Opta / 시장배당
+// ═══════════════════════════════════════════════════════════
+
+// FiveThirtyEight SPI 데이터 (2026 월드컵)
+// ※ "알제리" 중복 정의 오류 수정: ELO base(1490)와 정합성이 더 높은
+//    spi:66.0 (추가팀 섹션 값, ELO 역산 spi≈67.2)을 채택, 중복 제거
+const SPI_RATINGS = {
+  "브라질":    {spi:89.7, off:3.1, def:0.8,  winProb:0.18},
+  "프랑스":    {spi:88.2, off:2.9, def:0.9,  winProb:0.15},
+  "스페인":    {spi:87.5, off:2.8, def:0.8,  winProb:0.13},
+  "아르헨티나":{spi:86.9, off:2.7, def:0.9,  winProb:0.12},
+  "잉글랜드":  {spi:85.4, off:2.6, def:1.0,  winProb:0.10},
+  "독일":      {spi:84.8, off:2.5, def:1.1,  winProb:0.08},
+  "포르투갈":  {spi:84.2, off:2.4, def:1.1,  winProb:0.07},
+  "네덜란드":  {spi:83.6, off:2.3, def:1.2,  winProb:0.06},
+  "벨기에":    {spi:82.1, off:2.2, def:1.2,  winProb:0.05},
+  "크로아티아":{spi:80.4, off:2.0, def:1.3,  winProb:0.04},
+  "노르웨이":  {spi:79.8, off:2.1, def:1.3,  winProb:0.04},
+  "콜롬비아":  {spi:79.2, off:2.0, def:1.3,  winProb:0.03},
+  "대한민국":  {spi:76.5, off:1.8, def:1.4,  winProb:0.02},
+  "일본":      {spi:76.1, off:1.7, def:1.3,  winProb:0.02},
+  "모로코":    {spi:75.8, off:1.7, def:1.2,  winProb:0.02},
+  "세네갈":    {spi:75.2, off:1.8, def:1.3,  winProb:0.02},
+  "미국":      {spi:74.9, off:1.8, def:1.4,  winProb:0.02},
+  "우루과이":  {spi:74.3, off:1.7, def:1.3,  winProb:0.02},
+  "오스트리아":{spi:73.8, off:1.6, def:1.4,  winProb:0.01},
+  "스위스":    {spi:73.4, off:1.6, def:1.3,  winProb:0.01},
+  "멕시코":    {spi:72.1, off:1.6, def:1.5,  winProb:0.01},
+  "캐나다":    {spi:71.8, off:1.6, def:1.5,  winProb:0.01},
+  "에콰도르":  {spi:70.5, off:1.5, def:1.5,  winProb:0.01},
+  "스웨덴":    {spi:71.2, off:1.8, def:1.4,  winProb:0.01},
+  "튀르키예":  {spi:70.8, off:1.5, def:1.5,  winProb:0.01},
+  "코트디부아르":{spi:70.1,off:1.6, def:1.5, winProb:0.01},
+  "이집트":    {spi:68.7, off:1.5, def:1.6,  winProb:0.01},
+  "이란":      {spi:68.2, off:1.4, def:1.5,  winProb:0.00},
+  "가나":      {spi:67.5, off:1.4, def:1.6,  winProb:0.00},
+  "호주":      {spi:67.1, off:1.4, def:1.5,  winProb:0.00},
+  "체코":      {spi:66.8, off:1.4, def:1.6,  winProb:0.00},
+  "스코틀랜드":{spi:66.2, off:1.3, def:1.6,  winProb:0.00},
+  "사우디아라비아":{spi:65.4,off:1.3,def:1.6,winProb:0.00},
+  "알제리":    {spi:66.0, off:1.3, def:1.6,  winProb:0.01},
+  // 추가 팀 (전체 64팀 완성)
+  "나이지리아":   {spi:67.5, off:1.4, def:1.6, winProb:0.00},
+  "코스타리카":   {spi:60.2, off:1.1, def:1.7, winProb:0.00},
+  "파나마":       {spi:58.4, off:1.0, def:1.8, winProb:0.00},
+  "볼리비아":     {spi:50.1, off:0.9, def:2.0, winProb:0.00},
+  "베네수엘라":   {spi:58.8, off:1.1, def:1.7, winProb:0.00},
+  "이라크":       {spi:57.2, off:1.1, def:1.8, winProb:0.00},
+  "요르단":       {spi:55.8, off:1.0, def:1.8, winProb:0.00},
+  "카보베르데":   {spi:54.2, off:0.9, def:1.9, winProb:0.00},
+  "아이슬란드":   {spi:61.5, off:1.1, def:1.7, winProb:0.00},
+  "카타르":       {spi:62.0, off:1.1, def:1.7, winProb:0.00},
+  "보스니아":     {spi:63.5, off:1.2, def:1.7, winProb:0.00},
+  "파라과이":     {spi:62.8, off:1.2, def:1.7, winProb:0.00},
+  "퀴라소":       {spi:48.0, off:0.8, def:2.0, winProb:0.00},
+  "콩고민주공화국":{spi:60.5,off:1.1, def:1.8, winProb:0.00},
+  "우즈베키스탄": {spi:59.8, off:1.1, def:1.7, winProb:0.00},
+  "남아프리카공화국":{spi:56.2,off:1.0,def:1.8,winProb:0.00},
+  "모잠비크":     {spi:44.5, off:0.8, def:2.1, winProb:0.00},
+  "부르키나파소": {spi:55.0, off:1.0, def:1.9, winProb:0.00},
+  "아이티":       {spi:47.2, off:0.8, def:2.1, winProb:0.00},
+  "중국":         {spi:53.0, off:0.9, def:1.9, winProb:0.00},
+  "태국":         {spi:48.5, off:0.8, def:2.0, winProb:0.00},
+  "인도네시아":   {spi:45.0, off:0.7, def:2.1, winProb:0.00},
+  "인도":         {spi:46.5, off:0.8, def:2.0, winProb:0.00},
+  "타지키스탄":   {spi:42.0, off:0.7, def:2.1, winProb:0.00},
+  "뉴질랜드":     {spi:55.5, off:1.0, def:1.8, winProb:0.00},
+  "아르메니아":   {spi:52.5, off:0.9, def:1.9, winProb:0.00},
+  "몰도바":       {spi:41.5, off:0.7, def:2.2, winProb:0.00},
+  "벨라루스":     {spi:51.0, off:0.9, def:1.9, winProb:0.00},
+  "헝가리":       {spi:63.0, off:1.2, def:1.7, winProb:0.00},
+  "카자흐스탄":   {spi:49.0, off:0.8, def:2.0, winProb:0.00},
+  "아제르바이잔": {spi:46.0, off:0.8, def:2.1, winProb:0.00},
+  "러시아":       {spi:64.5, off:1.3, def:1.6, winProb:0.00},
+  "트리니다드토바고":{spi:45.5,off:0.8,def:2.1,winProb:0.00},
+  "튀니지":       {spi:61.0, off:1.1, def:1.7, winProb:0.00},
+  "산마리노":     {spi:20.0, off:0.3, def:3.5, winProb:0.00},
+};
+
+// Opta Analyst 파워랭킹 (2026년 6월)
+// ※ "알제리" 중복 정의 오류 수정: SPI와 동일하게 추가팀 섹션 값(rank 35) 채택
+const OPTA_RANKINGS = {
+  "브라질":    {rank:1,  powerScore:96.5, xgPerGame:2.18, xgaPerGame:0.78},
+  "프랑스":    {rank:2,  powerScore:95.8, xgPerGame:2.15, xgaPerGame:0.82},
+  "스페인":    {rank:3,  powerScore:95.1, xgPerGame:2.22, xgaPerGame:0.80},
+  "아르헨티나":{rank:4,  powerScore:94.3, xgPerGame:2.10, xgaPerGame:0.85},
+  "잉글랜드":  {rank:5,  powerScore:93.7, xgPerGame:2.05, xgaPerGame:0.88},
+  "독일":      {rank:6,  powerScore:92.9, xgPerGame:1.98, xgaPerGame:0.92},
+  "포르투갈":  {rank:7,  powerScore:92.1, xgPerGame:1.95, xgaPerGame:0.95},
+  "네덜란드":  {rank:8,  powerScore:91.4, xgPerGame:1.92, xgaPerGame:0.90},
+  "벨기에":    {rank:9,  powerScore:90.6, xgPerGame:1.88, xgaPerGame:0.98},
+  "크로아티아":{rank:10, powerScore:89.2, xgPerGame:1.75, xgaPerGame:1.05},
+  "노르웨이":  {rank:11, powerScore:88.8, xgPerGame:1.98, xgaPerGame:1.02},
+  "콜롬비아":  {rank:12, powerScore:88.1, xgPerGame:1.85, xgaPerGame:0.95},
+  "세네갈":    {rank:13, powerScore:87.0, xgPerGame:1.82, xgaPerGame:0.92},
+  "모로코":    {rank:14, powerScore:86.2, xgPerGame:1.65, xgaPerGame:0.88},
+  "미국":      {rank:15, powerScore:85.8, xgPerGame:1.78, xgaPerGame:1.00},
+  "우루과이":  {rank:16, powerScore:85.2, xgPerGame:1.72, xgaPerGame:0.98},
+  "일본":      {rank:17, powerScore:84.9, xgPerGame:1.68, xgaPerGame:1.05},
+  "대한민국":  {rank:18, powerScore:84.5, xgPerGame:1.72, xgaPerGame:1.08},
+  "스위스":    {rank:19, powerScore:83.8, xgPerGame:1.58, xgaPerGame:1.02},
+  "오스트리아":{rank:20, powerScore:83.2, xgPerGame:1.55, xgaPerGame:1.12},
+  "스웨덴":    {rank:21, powerScore:82.5, xgPerGame:1.78, xgaPerGame:1.02},
+  "멕시코":    {rank:22, powerScore:82.1, xgPerGame:1.62, xgaPerGame:1.10},
+  "캐나다":    {rank:23, powerScore:81.5, xgPerGame:1.65, xgaPerGame:1.05},
+  "튀르키예":  {rank:24, powerScore:80.8, xgPerGame:1.52, xgaPerGame:1.12},
+  "에콰도르":  {rank:25, powerScore:80.2, xgPerGame:1.48, xgaPerGame:1.18},
+  "코트디부아르":{rank:26,powerScore:79.5,xgPerGame:1.58,xgaPerGame:1.08},
+  "알제리":    {rank:35, powerScore:72.8, xgPerGame:1.42, xgaPerGame:1.20},
+  "이집트":    {rank:29, powerScore:77.4, xgPerGame:1.55, xgaPerGame:1.15},
+  "이란":      {rank:30, powerScore:76.8, xgPerGame:1.48, xgaPerGame:1.05},
+  "호주":      {rank:31, powerScore:75.8, xgPerGame:1.42, xgaPerGame:1.08},
+  "가나":      {rank:32, powerScore:75.2, xgPerGame:1.38, xgaPerGame:1.18},
+  "체코":      {rank:33, powerScore:74.5, xgPerGame:1.42, xgaPerGame:1.15},
+  "나이지리아":   {rank:34,powerScore:73.5,xgPerGame:1.45,xgaPerGame:1.18},
+  "사우디아라비아":{rank:36,powerScore:72.1,xgPerGame:1.38,xgaPerGame:1.22},
+  "러시아":       {rank:37,powerScore:71.2,xgPerGame:1.35,xgaPerGame:1.22},
+  "헝가리":       {rank:38,powerScore:70.5,xgPerGame:1.28,xgaPerGame:1.25},
+  "보스니아":     {rank:39,powerScore:69.8,xgPerGame:1.25,xgaPerGame:1.28},
+  "파라과이":     {rank:40,powerScore:69.2,xgPerGame:1.22,xgaPerGame:1.30},
+  "카타르":       {rank:41,powerScore:68.2,xgPerGame:1.18,xgaPerGame:1.38},
+  "아이슬란드":   {rank:42,powerScore:67.5,xgPerGame:1.12,xgaPerGame:1.35},
+  "콩고민주공화국":{rank:43,powerScore:66.5,xgPerGame:1.15,xgaPerGame:1.35},
+  "코스타리카":   {rank:44,powerScore:66.8,xgPerGame:1.12,xgaPerGame:1.32},
+  "베네수엘라":   {rank:45,powerScore:65.8,xgPerGame:1.15,xgaPerGame:1.32},
+  "파나마":       {rank:46,powerScore:65.2,xgPerGame:1.08,xgaPerGame:1.38},
+  "이라크":       {rank:47,powerScore:64.5,xgPerGame:1.12,xgaPerGame:1.35},
+  "우즈베키스탄": {rank:48,powerScore:63.8,xgPerGame:1.12,xgaPerGame:1.28},
+  "요르단":       {rank:49,powerScore:63.2,xgPerGame:1.05,xgaPerGame:1.38},
+  "남아프리카공화국":{rank:50,powerScore:62.5,xgPerGame:1.05,xgaPerGame:1.38},
+  "카보베르데":   {rank:51,powerScore:61.5,xgPerGame:1.00,xgaPerGame:1.42},
+  "부르키나파소": {rank:52,powerScore:60.8,xgPerGame:1.00,xgaPerGame:1.45},
+  "뉴질랜드":     {rank:53,powerScore:60.2,xgPerGame:1.00,xgaPerGame:1.45},
+  "중국":         {rank:54,powerScore:59.2,xgPerGame:0.95,xgaPerGame:1.52},
+  "아르메니아":   {rank:55,powerScore:58.5,xgPerGame:0.92,xgaPerGame:1.52},
+  "벨라루스":     {rank:56,powerScore:58.0,xgPerGame:0.90,xgaPerGame:1.55},
+  "태국":         {rank:57,powerScore:55.8,xgPerGame:0.88,xgaPerGame:1.62},
+  "퀴라소":       {rank:58,powerScore:54.5,xgPerGame:0.88,xgaPerGame:1.62},
+  "인도":         {rank:59,powerScore:54.2,xgPerGame:0.85,xgaPerGame:1.65},
+  "아이티":       {rank:60,powerScore:53.5,xgPerGame:0.88,xgaPerGame:1.65},
+  "인도네시아":   {rank:61,powerScore:52.5,xgPerGame:0.82,xgaPerGame:1.68},
+  "트리니다드토바고":{rank:61,powerScore:53.0,xgPerGame:0.82,xgaPerGame:1.68},
+  "아제르바이잔": {rank:62,powerScore:52.0,xgPerGame:0.82,xgaPerGame:1.68},
+  "모잠비크":     {rank:62,powerScore:51.2,xgPerGame:0.88,xgaPerGame:1.68},
+  "카자흐스탄":   {rank:59,powerScore:55.2,xgPerGame:0.85,xgaPerGame:1.62},
+  "타지키스탄":   {rank:63,powerScore:50.5,xgPerGame:0.78,xgaPerGame:1.72},
+  "몰도바":       {rank:64,powerScore:49.8,xgPerGame:0.75,xgaPerGame:1.75},
+  "스코틀랜드":   {rank:36,powerScore:72.6,xgPerGame:1.32,xgaPerGame:1.22},
+  "볼리비아":     {rank:60,powerScore:56.6,xgPerGame:0.95,xgaPerGame:1.58},
+  "튀니지":       {rank:34,powerScore:67.5,xgPerGame:1.28,xgaPerGame:1.22},
+  "산마리노":     {rank:70,powerScore:25.0,xgPerGame:0.30,xgaPerGame:3.50},
+};
+
+// 참고 사이트 링크
+const REFERENCE_SITES = [
+  {name:"Opta Analyst",     url:"https://theanalyst.com/articles/opta-football-predictions", desc:"슈퍼컴 승무패 예측", icon:"🤖"},
+  {name:"SofaScore",        url:"https://sofascore.com",       desc:"실시간 xG·라이브스코어", icon:"⚡"},
+  {name:"Understat",        url:"https://understat.com",       desc:"고급 xG 통계(공개)",  icon:"🎯"},
+  {name:"FBref",            url:"https://fbref.com",           desc:"세부 경기 스탯",     icon:"📊"},
+  {name:"Football-Data",    url:"https://www.football-data.co.uk", desc:"역대 배당 데이터",  icon:"💹"},
+  {name:"FlashScore",       url:"https://flashscore.com",      desc:"실시간 결과·일정",   icon:"⏱️"},
+  {name:"Forebet",          url:"https://forebet.com",         desc:"수학적 승무패 예측", icon:"🔢"},
+  {name:"Oddspedia",        url:"https://oddspedia.com",       desc:"배당 비교·변동",     icon:"📈"},
+];
+
+// ═══════════════════════════════════════════════════════════
+// 🧮 수학 유틸리티
+// ═══════════════════════════════════════════════════════════
+function expScore(ra, rb) {
+  return 1 / (1 + Math.pow(10, (rb - ra) / 400));
+}
+function glicko2Factor(rd) {
+  const q = Math.log(10) / 400;
+  return 1 / Math.sqrt(1 + (3 * q * q * rd * rd) / (Math.PI * Math.PI));
+}
+function calcDrawProb(eloDiff) {
+  const base = 0.27;
+  const closeness = Math.max(0, 1 - Math.abs(eloDiff) / 500);
+  return Math.min(0.34, Math.max(0.16, base + closeness * 0.07));
+}
+function poissonRandom(lambda) {
+  const L = Math.exp(-lambda);
+  let k = 0, p = 1;
+  do { k++; p *= Math.random(); } while (p > L);
+  return k - 1;
+}
+function playerEloPenalty(team) {
+  const data = ELO[team];
+  if (!data) return 0;
+  return (data.injuries || 0) * 8;
+}
+function bayesianBlend(priorProb, dataProb, weight = 0.6) {
+  if (typeof dataProb !== "number" || isNaN(dataProb)) return priorProb;
+  return priorProb * (1 - weight) + dataProb * weight;
+}
+
+// ═══════════════════════════════════════════════════════════
+// ⚙️ 동적 ELO 모듈 (경기 결과 입력 → 실시간 갱신)
+// ═══════════════════════════════════════════════════════════
+const _dynamicElo = {}; // { teamName: {base, xG, xGA, ...} } - 경기결과 반영시 덮어씀
+
+function getDynElo(team, field) {
+  const dyn = _dynamicElo[team];
+  if (dyn && typeof dyn[field] === "number") return dyn[field];
+  const base = ELO[team];
+  if (base && typeof base[field] === "number") return base[field];
+  // 안전 기본값
+  const FALLBACK = { base:1300, xgElo:1300, atk:1300, def:1300, form:1300, market:1300, player:1300, xG:1.3, xGA:1.3, npXg:1.2, ppda:14, fieldTilt:45, setPxg:0.25 };
+  return FALLBACK[field] ?? 1300;
+}
+function getKFactor(stage = "group") {
+  const factors = { group:20, ro16:24, qf:28, sf:32, final:40, friendly:12, qualifier:16, po:18 };
+  return factors[stage] ?? 20;
+}
+// ★ 유효성 검사: xG/xGA가 없거나 NaN이면 실제 득점 기반 기본값으로 대체
+function updateEloAfterMatch(home, away, homeGoals, awayGoals, xgHome, xgAway, stage = "group") {
+  const hg = Number.isFinite(homeGoals) ? homeGoals : 0;
+  const ag = Number.isFinite(awayGoals) ? awayGoals : 0;
+  const safeXgHome = (typeof xgHome === "number" && !isNaN(xgHome)) ? xgHome : Math.max(0.2, hg + 0.3);
+  const safeXgAway = (typeof xgAway === "number" && !isNaN(xgAway)) ? xgAway : Math.max(0.2, ag + 0.3);
+
+  const homeBase = getDynElo(home, "base");
+  const awayBase = getDynElo(away, "base");
+  const expectedHome = expScore(homeBase + 60, awayBase);
+
+  let actualHome = 0.5;
+  if (hg > ag) actualHome = 1; else if (hg < ag) actualHome = 0;
+
+  const k = getKFactor(stage);
+  const goalDiff = Math.abs(hg - ag);
+  const margin = goalDiff <= 1 ? 1 : (goalDiff === 2 ? 1.5 : 1.75);
+  const homeChange = k * margin * (actualHome - expectedHome);
+  const awayChange = -homeChange;
+
+  if (!_dynamicElo[home]) _dynamicElo[home] = { ...(ELO[home] || {}) };
+  if (!_dynamicElo[away]) _dynamicElo[away] = { ...(ELO[away] || {}) };
+
+  _dynamicElo[home].base = homeBase + homeChange;
+  _dynamicElo[away].base = awayBase + awayChange;
+
+  const prevHomeXg = getDynElo(home, "xG");
+  const prevAwayXg = getDynElo(away, "xG");
+  const prevHomeXga = getDynElo(home, "xGA");
+  const prevAwayXga = getDynElo(away, "xGA");
+
+  _dynamicElo[home].xG  = prevHomeXg  * 0.7 + safeXgHome * 0.3;
+  _dynamicElo[away].xG  = prevAwayXg  * 0.7 + safeXgAway * 0.3;
+  _dynamicElo[home].xGA = prevHomeXga * 0.7 + safeXgAway * 0.3;
+  _dynamicElo[away].xGA = prevAwayXga * 0.7 + safeXgHome * 0.3;
+
+  return { homeChange, awayChange, newHomeBase: _dynamicElo[home].base, newAwayBase: _dynamicElo[away].base, safeXgHome, safeXgAway };
+}
+
+// ═══════════════════════════════════════════════════════════
+// 🤖 ML 랜덤포레스트 앙상블 (5-tree, 휴리스틱 결정트리)
+// ═══════════════════════════════════════════════════════════
+function buildFeatureVector(home, away) {
+  const h = ELO[home] || {}, a = ELO[away] || {};
+  const hSpi = SPI_RATINGS[home]?.spi ?? 50, aSpi = SPI_RATINGS[away]?.spi ?? 50;
+  const hOpta = OPTA_RANKINGS[home]?.powerScore ?? 50, aOpta = OPTA_RANKINGS[away]?.powerScore ?? 50;
+  const hForm = (getDynElo(home,"_formArr") || h.formArr || []).reduce ? (h.formArr||[]).reduce((s,x)=>s+x,0) : 0;
+  const aForm = (a.formArr||[]).reduce((s,x)=>s+x,0);
+  return {
+    eloDiff: getDynElo(home,"base") - getDynElo(away,"base"),
+    spiDiff: hSpi - aSpi,
+    optaDiff: hOpta - aOpta,
+    xgDiff: getDynElo(home,"xG") - getDynElo(away,"xG"),
+    xgaDiff: getDynElo(away,"xGA") - getDynElo(home,"xGA"),
+    formDiff: hForm - aForm,
+    ppdaDiff: (a.ppda ?? 14) - (h.ppda ?? 14),
+    fieldTiltDiff: (h.fieldTilt ?? 45) - (a.fieldTilt ?? 45),
+    setPxgDiff: (h.setPxg ?? 0.25) - (a.setPxg ?? 0.25),
+  };
+}
+function decisionTree1(f) { // ELO 기반
+  if (f.eloDiff > 150) return {homeWin:0.65, draw:0.20, awayWin:0.15};
+  if (f.eloDiff > 50)  return {homeWin:0.50, draw:0.27, awayWin:0.23};
+  if (f.eloDiff > -50) return {homeWin:0.38, draw:0.30, awayWin:0.32};
+  if (f.eloDiff > -150)return {homeWin:0.25, draw:0.27, awayWin:0.48};
+  return {homeWin:0.13, draw:0.20, awayWin:0.67};
+}
+function decisionTree2(f) { // SPI 기반
+  if (f.spiDiff > 15) return {homeWin:0.60, draw:0.22, awayWin:0.18};
+  if (f.spiDiff > 5)  return {homeWin:0.48, draw:0.28, awayWin:0.24};
+  if (f.spiDiff > -5) return {homeWin:0.37, draw:0.31, awayWin:0.32};
+  if (f.spiDiff > -15)return {homeWin:0.26, draw:0.28, awayWin:0.46};
+  return {homeWin:0.16, draw:0.22, awayWin:0.62};
+}
+function decisionTree3(f) { // xG 공수 밸런스
+  const d = f.xgDiff + f.xgaDiff;
+  if (d > 0.6)  return {homeWin:0.58, draw:0.24, awayWin:0.18};
+  if (d > 0.2)  return {homeWin:0.46, draw:0.29, awayWin:0.25};
+  if (d > -0.2) return {homeWin:0.36, draw:0.31, awayWin:0.33};
+  if (d > -0.6) return {homeWin:0.26, draw:0.29, awayWin:0.45};
+  return {homeWin:0.15, draw:0.23, awayWin:0.62};
+}
+function decisionTree4(f) { // 폼 + 필드틸트
+  const d = f.formDiff * 8 + f.fieldTiltDiff;
+  if (d > 12)  return {homeWin:0.56, draw:0.24, awayWin:0.20};
+  if (d > 4)   return {homeWin:0.46, draw:0.29, awayWin:0.25};
+  if (d > -4)  return {homeWin:0.37, draw:0.31, awayWin:0.32};
+  if (d > -12) return {homeWin:0.28, draw:0.29, awayWin:0.43};
+  return {homeWin:0.18, draw:0.24, awayWin:0.58};
+}
+function decisionTree5(f) { // Opta + 세트피스
+  const d = f.optaDiff + f.setPxgDiff * 40;
+  if (d > 12)  return {homeWin:0.59, draw:0.23, awayWin:0.18};
+  if (d > 4)   return {homeWin:0.47, draw:0.28, awayWin:0.25};
+  if (d > -4)  return {homeWin:0.37, draw:0.31, awayWin:0.32};
+  if (d > -12) return {homeWin:0.27, draw:0.28, awayWin:0.45};
+  return {homeWin:0.17, draw:0.22, awayWin:0.61};
+}
+function randomForestWinProb(f) {
+  const trees = [decisionTree1(f), decisionTree2(f), decisionTree3(f), decisionTree4(f), decisionTree5(f)];
+  const sum = {homeWin:0, draw:0, awayWin:0};
+  trees.forEach(t => { sum.homeWin+=t.homeWin; sum.draw+=t.draw; sum.awayWin+=t.awayWin; });
+  const total = sum.homeWin + sum.draw + sum.awayWin;
+  return { homeWin: sum.homeWin/total, draw: sum.draw/total, awayWin: sum.awayWin/total, trees };
+}
+function mlAdjustedLambda(lambda, mlSkew) {
+  // mlSkew: -1(원정 압도) ~ +1(홈 압도)
+  const safeLambda = Number.isFinite(lambda) ? lambda : 1.2;
+  const safeSkew = Number.isFinite(mlSkew) ? mlSkew : 0;
+  return Math.max(0.15, safeLambda * (1 + safeSkew * 0.15));
+}
+
+// ═══════════════════════════════════════════════════════════
+// 🎯 predictMatch — 8단계 하이브리드 ELO + ML + 몬테카를로
+// ═══════════════════════════════════════════════════════════
+const STAGE_WEIGHTS = { base:0.20, xgElo:0.15, atk:0.10, def:0.10, form:0.15, market:0.15, player:0.15 };
+
+function compositeElo(team) {
+  let total = 0;
+  for (const [field, w] of Object.entries(STAGE_WEIGHTS)) total += getDynElo(team, field) * w;
+  total -= playerEloPenalty(team);
+  return total;
+}
+
+function predictMatch(homeName, awayName, sims = 30000, liveOverride = {}) {
+  const homeEloRaw = compositeElo(homeName);
+  const awayEloRaw = compositeElo(awayName);
+  const homeAdv = liveOverride.neutralVenue ? 25 : 60;
+  const homeElo = homeEloRaw + homeAdv;
+  const awayElo = awayEloRaw;
+
+  const eloDiff = homeElo - awayElo;
+  const winProbRaw = expScore(homeElo, awayElo);
+  const drawProbRaw = calcDrawProb(eloDiff);
+  let homeWinProb = winProbRaw * (1 - drawProbRaw);
+  let awayWinProb = (1 - winProbRaw) * (1 - drawProbRaw);
+  let drawProb = drawProbRaw;
+
+  // ML 앙상블 블렌딩 (40%)
+  const features = buildFeatureVector(homeName, awayName);
+  const mlProbs = randomForestWinProb(features);
+  homeWinProb = bayesianBlend(homeWinProb, mlProbs.homeWin, 0.4);
+  awayWinProb = bayesianBlend(awayWinProb, mlProbs.awayWin, 0.4);
+  drawProb    = bayesianBlend(drawProb,    mlProbs.draw,    0.4);
+  let normTotal = homeWinProb + awayWinProb + drawProb;
+  homeWinProb /= normTotal; awayWinProb /= normTotal; drawProb /= normTotal;
+
+  // 기대 득점(λ) 산출
+  const hData = ELO[homeName] || {}, aData = ELO[awayName] || {};
+  const hXg = getDynElo(homeName, "xG"), hXga = getDynElo(homeName, "xGA");
+  const aXg = getDynElo(awayName, "xG"), aXga = getDynElo(awayName, "xGA");
+  let lambdaHome = ((hXg + aXga) / 2) * 1.08;
+  let lambdaAway = ((aXg + hXga) / 2) * 0.95;
+  const mlSkew = mlProbs.homeWin - mlProbs.awayWin;
+  lambdaHome = mlAdjustedLambda(lambdaHome, mlSkew);
+  lambdaAway = mlAdjustedLambda(lambdaAway, -mlSkew);
+
+  if (typeof liveOverride.lambdaHomeAdj === "number") lambdaHome = Math.max(0.15, lambdaHome + liveOverride.lambdaHomeAdj);
+  if (typeof liveOverride.lambdaAwayAdj === "number") lambdaAway = Math.max(0.15, lambdaAway + liveOverride.lambdaAwayAdj);
+
+  // ★ 몬테카를로 시뮬레이션 (sims 횟수, 기본 30,000회)
+  const safeSims = Number.isFinite(sims) && sims > 0 ? Math.floor(sims) : 30000;
+  let hw=0, dr=0, aw=0;
+  const scoreCounts = {};
+  for (let i=0;i<safeSims;i++) {
+    const hg = poissonRandom(lambdaHome);
+    const ag = poissonRandom(lambdaAway);
+    if (hg>ag) hw++; else if (hg<ag) aw++; else dr++;
+    const key = `${hg}-${ag}`;
+    scoreCounts[key] = (scoreCounts[key]||0)+1;
+  }
+  const mcHome = hw/safeSims, mcDraw = dr/safeSims, mcAway = aw/safeSims;
+
+  // ELO+ML(50%) ↔ 몬테카를로(50%) 최종 블렌딩
+  const finalHome = (homeWinProb + mcHome) / 2;
+  const finalDraw = (drawProb + mcDraw) / 2;
+  const finalAway = (awayWinProb + mcAway) / 2;
+
+  const topScores = Object.entries(scoreCounts)
+    .sort((a,b)=>b[1]-a[1]).slice(0,5)
+    .map(([score,count])=>({ score, prob: count/safeSims }));
+
+  const overUnder = computeOverUnder(scoreCounts, safeSims);
+
+  return {
+    home: homeName, away: awayName,
+    homeWinProb: finalHome, drawProb: finalDraw, awayWinProb: finalAway,
+    eloOnly: { homeWinProb, drawProb, awayWinProb },
+    monteCarlo: { homeWinProb: mcHome, drawProb: mcDraw, awayWinProb: mcAway },
+    lambdaHome, lambdaAway,
+    homeElo, awayElo, eloDiff,
+    topScores,
+    overUnder,                 // ★ {2.5:{over,under}, 3.5:{over,under}} — 합산 골 수 기준
+    sims: safeSims,           // ★ UI 표시용 실제 시뮬레이션 횟수
+    mlProbs, features,
+    timestamp: Date.now(),
+  };
+}
+
+// ★ scoreCounts({"2-1":count,...})로부터 오버/언더 2.5·3.5 확률 계산
+function computeOverUnder(scoreCounts, totalSims) {
+  const lines = [2.5, 3.5];
+  const result = {};
+  for (const line of lines) {
+    let over = 0;
+    for (const [score, count] of Object.entries(scoreCounts)) {
+      const [h, a] = score.split("-").map(Number);
+      if ((h + a) > line) over += count;
+    }
+    result[line] = { over: over / totalSims, under: 1 - over / totalSims };
+  }
+  return result;
+}
+
+// ═══════════════════════════════════════════════════════════
+// 🔬 교차검증(Cross-Validation) 헬퍼
+// ═══════════════════════════════════════════════════════════
+function impliedProbabilityFromOdds(odds) {
+  if (typeof odds !== "number" || !isFinite(odds) || odds <= 1) return null;
+  return 1 / odds;
+}
+
+// 배당 3종 → 마진(오버라운드) 제거한 정규화 확률 {home,draw,away}
+function devigOdds(oddsObj) {
+  if (!oddsObj) return null;
+  const ih = impliedProbabilityFromOdds(oddsObj.home);
+  const id = impliedProbabilityFromOdds(oddsObj.draw);
+  const ia = impliedProbabilityFromOdds(oddsObj.away);
+  if (ih == null || id == null || ia == null) return null;
+  const sum = ih + id + ia;
+  if (sum <= 0) return null;
+  return { home: ih/sum, draw: id/sum, away: ia/sum };
+}
+
+// ★ 실시간 예측: 정적 모델 결과에 라이브 배당 + API-Football 예측을 가중 혼합
+//   고정값 방지의 핵심. 외부 데이터가 하나도 없으면 정적 결과를 그대로 반환(liveApplied:false).
+async function predictMatchLive(homeName, awayName, sims = 30000, dateISO = null) {
+  const base = predictMatch(homeName, awayName, sims);
+  if (!RUNTIME_CONFIG.useLiveOdds) return { ...base, liveApplied: false, liveSources: [] };
+
+  const [oddsRaw, apiPred] = await Promise.all([
+    fetchMatchOdds(homeName, awayName),
+    fetchApiFootballPrediction(homeName, awayName, dateISO),
+  ]);
+
+  const marketProbs = devigOdds(oddsRaw);
+  const sources = [];
+  // 외부 소스들을 평균내어 하나의 "시장/예측 컨센서스"로
+  const ext = { home: [], draw: [], away: [] };
+  if (marketProbs) { ext.home.push(marketProbs.home); ext.draw.push(marketProbs.draw); ext.away.push(marketProbs.away); sources.push("market"); }
+  if (apiPred && apiPred.home != null) {
+    // API-Football 예측은 합이 1이 아닐 수 있어 정규화
+    const s = (apiPred.home||0)+(apiPred.draw||0)+(apiPred.away||0);
+    if (s > 0) { ext.home.push(apiPred.home/s); ext.draw.push((apiPred.draw||0)/s); ext.away.push(apiPred.away/s); sources.push("apiFootball"); }
+  }
+
+  if (!sources.length) {
+    return { ...base, liveApplied: false, liveSources: [], marketProbs: null, apiPrediction: apiPred || null };
+  }
+
+  const avg = arr => arr.reduce((a,b)=>a+b,0)/arr.length;
+  const consensus = { home: avg(ext.home), draw: avg(ext.draw), away: avg(ext.away) };
+
+  const w = Math.min(0.8, Math.max(0, RUNTIME_CONFIG.liveOddsWeight));
+  let h = base.homeWinProb*(1-w) + consensus.home*w;
+  let d = base.drawProb*(1-w) + consensus.draw*w;
+  let a = base.awayWinProb*(1-w) + consensus.away*w;
+  const tot = h+d+a;
+  h/=tot; d/=tot; a/=tot;
+
+  // 승률이 바뀌면 기대득점(λ)도 비례 조정해 스코어라인 재시뮬
+  const homeShift = base.homeWinProb > 0 ? h/base.homeWinProb : 1;
+  const awayShift = base.awayWinProb > 0 ? a/base.awayWinProb : 1;
+  let lambdaHome = Math.max(0.2, base.lambdaHome * Math.pow(homeShift, 0.6));
+  let lambdaAway = Math.max(0.2, base.lambdaAway * Math.pow(awayShift, 0.6));
+
+  // 스코어라인 재시뮬 (가벼운 8천회)
+  const reSims = 8000;
+  const scoreCounts = {};
+  for (let i=0;i<reSims;i++) {
+    const hg = poissonRandom(lambdaHome), ag = poissonRandom(lambdaAway);
+    const key = `${hg}-${ag}`;
+    scoreCounts[key] = (scoreCounts[key]||0)+1;
+  }
+  const topScores = Object.entries(scoreCounts).sort((x,y)=>y[1]-x[1]).slice(0,5)
+    .map(([score,count])=>({ score, prob: count/reSims }));
+  const overUnder = computeOverUnder(scoreCounts, reSims);
+
+  return {
+    ...base,
+    homeWinProb: h, drawProb: d, awayWinProb: a,
+    lambdaHome, lambdaAway, topScores, overUnder,
+    staticOverUnder: base.overUnder,
+    staticProbs: { home: base.homeWinProb, draw: base.drawProb, away: base.awayWinProb },
+    marketProbs, marketTotals: oddsRaw?.totals || null, apiPrediction: apiPred || null,
+    consensus,
+    liveApplied: true,
+    liveWeight: w,
+    liveSources: sources,
+    timestamp: Date.now(),
+  };
+}
+
+function calcVariance(values) {
+  const valid = values.filter(v => typeof v === "number" && !isNaN(v));
+  if (valid.length < 2) return 0;
+  const mean = valid.reduce((a,b)=>a+b,0) / valid.length;
+  return valid.reduce((a,b)=>a + (b-mean)**2, 0) / valid.length;
+}
+function calculateConsensus(items) {
+  // items: [{value, weight}]
+  const valid = items.filter(it => typeof it.value === "number" && !isNaN(it.value));
+  if (!valid.length) return null;
+  const totalW = valid.reduce((a,b)=>a+b.weight, 0);
+  if (totalW === 0) return null;
+  return valid.reduce((a,b)=>a + b.value*b.weight, 0) / totalW;
+}
+function calculateDeviation(ourProb, consensusProb) {
+  if (consensusProb === null || typeof ourProb !== "number") return null;
+  return Math.abs(ourProb - consensusProb);
+}
+function calculateConfidenceScore(deviation, variance) {
+  if (deviation === null) return 50;
+  const devPenalty = Math.min(40, deviation * 150);
+  const varPenalty = Math.min(20, (variance || 0) * 200);
+  return Math.max(10, Math.round(100 - devPenalty - varPenalty));
+}
+
+// SPI/Opta 점수차 → 승률 변환 (간이 로지스틱)
+function ratingDiffToProbs(diff, scale = 15, capDraw = 0.85) {
+  const homeRaw = 1 / (1 + Math.pow(10, -diff / scale));
+  const home = homeRaw * capDraw;
+  const away = (1 - homeRaw) * capDraw;
+  const draw = Math.max(0, 1 - home - away);
+  return { home, draw, away };
+}
+
+async function crossValidate(homeName, awayName, ourProbs, dateISO = null) {
+  try {
+    const hSpi = SPI_RATINGS[homeName], aSpi = SPI_RATINGS[awayName];
+    const hOpta = OPTA_RANKINGS[homeName], aOpta = OPTA_RANKINGS[awayName];
+
+    const spiP = (hSpi && aSpi) ? ratingDiffToProbs(hSpi.spi - aSpi.spi) : null;
+    const optaP = (hOpta && aOpta) ? ratingDiffToProbs(hOpta.powerScore - aOpta.powerScore) : null;
+
+    // 실시간 소스 병렬 조회 (배당 + API-Football 예측)
+    let marketP = null, apiP = null;
+    const [odds, apiPred] = await Promise.all([
+      fetchMatchOdds(homeName, awayName).catch(() => null),
+      fetchApiFootballPrediction(homeName, awayName, dateISO).catch(() => null),
+    ]);
+    marketP = devigOdds(odds); // 마진 제거된 정규화 확률
+    if (apiPred && apiPred.home != null) {
+      const s = (apiPred.home||0)+(apiPred.draw||0)+(apiPred.away||0);
+      if (s > 0) apiP = { home: apiPred.home/s, draw: (apiPred.draw||0)/s, away: apiPred.away/s, advice: apiPred.advice, underOver: apiPred.underOver, goalsAvg: apiPred.goalsAvg };
+    }
+
+    const consensusHome = calculateConsensus([
+      { value: spiP?.home ?? null, weight: 0.20 },
+      { value: optaP?.home ?? null, weight: 0.30 },
+      { value: marketP?.home ?? null, weight: 0.30 },
+      { value: apiP?.home ?? null, weight: 0.20 },
+    ]);
+    const variance = calcVariance([spiP?.home, optaP?.home, marketP?.home, apiP?.home, ourProbs?.homeWinProb]);
+    const deviation = calculateDeviation(ourProbs?.homeWinProb, consensusHome);
+    const confidence = calculateConfidenceScore(deviation, variance);
+
+    return { spi: spiP, opta: optaP, market: marketP, apiFootball: apiP, consensusHome, deviation, variance, confidence };
+  } catch (e) {
+    return { spi: null, opta: null, market: null, apiFootball: null, consensusHome: null, deviation: null, variance: 0, confidence: 50, error: true };
+  }
+}
+
+// ═══════════════════════════════════════════════════════════
+// 🌐 외부 API 연동 (라이브 스쿼드 / 부상 / 배당 / 날씨)
+// ═══════════════════════════════════════════════════════════
+// ═══════════════════════════════════════════════════════════
+// 🔑 런타임 설정 (키 + CORS 프록시) — UI 설정 탭에서 수정 가능, storage 영구저장
+//   ⚠️ 아티팩트는 코드가 노출되므로, 노출돼도 괜찮은 키만 넣고 유출 시 즉시 교체하세요.
+//   ⚠️ 브라우저는 CORS로 외부 API 직접 호출을 차단합니다. PROXY를 비우면 자동 정적 폴백.
+// ═══════════════════════════════════════════════════════════
+const RUNTIME_CONFIG = {
+  // 공개 CORS 프록시 URL. 프록시 뒤에 원본 URL을 인코딩해 붙이는 형태.
+  // 예) "https://corsproxy.io/?url="  또는  "https://api.allorigins.win/raw?url="
+  // 비워두면("") 실시간 호출을 시도하지 않고 정적 데이터로 동작.
+  corsProxy: "https://corsproxy.io/?url=",
+  footballApiKey: "afb988f21e224372190ac852df6d2430c86be07b7a3bd8088f2a42950b648db0",
+  footballApiHost: "v3.football.api-sports.io",
+  oddsApiKey: "8249b523a115025e376a2f70174a7043", // The Odds API 키 (the-odds-api.com) — 있으면 시장배당 실시간 반영
+  weatherApiKey: "",       // OpenWeatherMap 키 (선택)
+  useLiveOdds: true,       // 실시간 배당/예측을 모델에 반영할지
+  liveOddsWeight: 0.35,    // 예측 블렌딩 시 외부 시장/예측 가중치 (0~1)
+};
+
+async function loadRuntimeConfig() {
+  try {
+    const r = await window.storage.get("config:runtime", false);
+    if (r?.value) Object.assign(RUNTIME_CONFIG, JSON.parse(r.value));
+  } catch (e) { /* 없으면 기본값 유지 */ }
+  return { ...RUNTIME_CONFIG };
+}
+async function saveRuntimeConfig(patch) {
+  try {
+    Object.assign(RUNTIME_CONFIG, patch);
+    await window.storage.set("config:runtime", JSON.stringify(RUNTIME_CONFIG), false);
+    return true;
+  } catch (e) { return false; }
+}
+// 프록시 경유 URL 생성 (프록시 없으면 원본 그대로 → 보통 CORS 차단)
+function withProxy(url) {
+  const p = RUNTIME_CONFIG.corsProxy;
+  return p ? p + encodeURIComponent(url) : url;
+}
+// ★ 다중 프록시 폴백 목록 — 첫 번째(설정값) 실패 시 순차로 다음 프록시 시도
+const PROXY_FALLBACKS = [
+  null, // null = RUNTIME_CONFIG.corsProxy(설정값) 그대로 사용
+  "https://corsproxy.io/?url=",
+  "https://api.allorigins.win/raw?url=",
+  "https://thingproxy.freeboard.io/fetch/",
+  "https://api.codetabs.com/v1/proxy?quest=",
+];
+// 여러 프록시를 순차 시도해 첫 성공 응답을 반환. 전부 실패시 null.
+async function fetchViaProxies(url, options = {}, timeoutMs = 4000) {
+  const tried = new Set();
+  for (const proxy of PROXY_FALLBACKS) {
+    const p = proxy === null ? RUNTIME_CONFIG.corsProxy : proxy;
+    if (!p || tried.has(p)) continue;
+    tried.add(p);
+    try {
+      const res = await fetchWithTimeout(p + encodeURIComponent(url), options, timeoutMs);
+      if (res.ok) return res;
+    } catch (e) { /* 다음 프록시로 */ }
+  }
+  return null;
+}
+
+// ★ 상세 진단 — 어느 단계에서 막히는지 한눈에 확인 (프록시별 / API키 / fixture / odds)
+async function runDiagnostics(sampleHome = "대한민국", sampleAway = "체코") {
+  const steps = [];
+  const headers = {
+    "x-apisports-key": RUNTIME_CONFIG.footballApiKey,
+    "x-rapidapi-key": RUNTIME_CONFIG.footballApiKey,
+    "x-rapidapi-host": RUNTIME_CONFIG.footballApiHost,
+  };
+  const statusUrl = `https://${RUNTIME_CONFIG.footballApiHost}/status`;
+
+  // 1) 프록시별 개별 테스트
+  const proxyList = [
+    { name: "설정값", url: RUNTIME_CONFIG.corsProxy },
+    { name: "corsproxy.io", url: "https://corsproxy.io/?url=" },
+    { name: "allorigins", url: "https://api.allorigins.win/raw?url=" },
+    { name: "thingproxy", url: "https://thingproxy.freeboard.io/fetch/" },
+    { name: "codetabs", url: "https://api.codetabs.com/v1/proxy?quest=" },
+  ];
+  let workingProxy = null;
+  for (const px of proxyList) {
+    if (!px.url) { steps.push({ step: `프록시: ${px.name}`, ok: false, detail: "URL 비어있음" }); continue; }
+    try {
+      const res = await fetchWithTimeout(px.url + encodeURIComponent(statusUrl), { headers }, 5000);
+      if (res.ok) {
+        const j = await res.json().catch(()=>null);
+        const ok = !!j?.response;
+        steps.push({ step: `프록시: ${px.name}`, ok, detail: ok ? "응답 OK" : `HTTP ${res.status}, JSON: ${JSON.stringify(j).slice(0,120)}` });
+        if (ok && !workingProxy) workingProxy = px.url;
+      } else {
+        steps.push({ step: `프록시: ${px.name}`, ok: false, detail: `HTTP ${res.status}` });
+      }
+    } catch (e) {
+      steps.push({ step: `프록시: ${px.name}`, ok: false, detail: `오류: ${e?.message || e}` });
+    }
+  }
+
+  if (!workingProxy) {
+    steps.push({ step: "API-Football 연결", ok: false, detail: "작동하는 프록시가 없어 이후 단계 진행 불가" });
+    return steps;
+  }
+
+  // 2) API 키 / 쿼터 확인 (status 응답에서 subscription·requests 정보 파싱)
+  try {
+    const res = await fetchWithTimeout(workingProxy + encodeURIComponent(statusUrl), { headers }, 6000);
+    const j = await res.json().catch(()=>null);
+    const acct = j?.response?.account;
+    const reqs = j?.response?.requests;
+    const sub = j?.response?.subscription;
+    if (acct) {
+      steps.push({ step: "API 키 / 계정", ok: true, detail: `${acct.firstname||""} ${acct.lastname||""} · 플랜: ${sub?.plan||"-"} · 오늘 요청 ${reqs?.current ?? "?"}/${reqs?.limit_day ?? "?"}` });
+    } else {
+      steps.push({ step: "API 키 / 계정", ok: false, detail: `응답: ${JSON.stringify(j).slice(0,150)}` });
+    }
+  } catch (e) {
+    steps.push({ step: "API 키 / 계정", ok: false, detail: `오류: ${e?.message || e}` });
+  }
+
+  // 3) 샘플 매치 fixture 조회 (h2h)
+  const homeId = TEAM_API_IDS[sampleHome], awayId = TEAM_API_IDS[sampleAway];
+  steps.push({ step: `팀 ID 매핑 (${sampleHome}/${sampleAway})`, ok: !!(homeId && awayId), detail: `${sampleHome}=${homeId ?? "없음"}, ${sampleAway}=${awayId ?? "없음"}` });
+  if (homeId && awayId) {
+    try {
+      const h2hUrl = `https://${RUNTIME_CONFIG.footballApiHost}/fixtures/headtohead?h2h=${homeId}-${awayId}&last=5`;
+      const res = await fetchWithTimeout(workingProxy + encodeURIComponent(h2hUrl), { headers }, 6000);
+      const j = await res.json().catch(()=>null);
+      const arr = j?.response;
+      if (Array.isArray(arr) && arr.length) {
+        const f = arr[0];
+        steps.push({ step: "fixture 조회 (h2h)", ok: true, detail: `${arr.length}건 발견 · 최근: ${f?.fixture?.date?.slice(0,10)} (id ${f?.fixture?.id})` });
+
+        // 4) predictions 조회
+        try {
+          const predUrl = `https://${RUNTIME_CONFIG.footballApiHost}/predictions?fixture=${f.fixture.id}`;
+          const r2 = await fetchWithTimeout(workingProxy + encodeURIComponent(predUrl), { headers }, 6000);
+          const j2 = await r2.json().catch(()=>null);
+          const pred = j2?.response?.[0]?.predictions;
+          if (pred) {
+            steps.push({ step: "predictions 조회", ok: true, detail: `승무패: ${JSON.stringify(pred.percent)}` });
+          } else {
+            steps.push({ step: "predictions 조회", ok: false, detail: `응답: ${JSON.stringify(j2).slice(0,150)}` });
+          }
+        } catch (e) {
+          steps.push({ step: "predictions 조회", ok: false, detail: `오류: ${e?.message || e}` });
+        }
+      } else {
+        steps.push({ step: "fixture 조회 (h2h)", ok: false, detail: `응답: ${JSON.stringify(j).slice(0,150)}` });
+      }
+    } catch (e) {
+      steps.push({ step: "fixture 조회 (h2h)", ok: false, detail: `오류: ${e?.message || e}` });
+    }
+  }
+
+  // 5) The Odds API (선택 키)
+  if (RUNTIME_CONFIG.oddsApiKey) {
+    try {
+      const oddsUrl = `https://api.the-odds-api.com/v4/sports/soccer_fifa_world_cup/odds?apiKey=${RUNTIME_CONFIG.oddsApiKey}&regions=eu&markets=h2h,totals&oddsFormat=decimal`;
+      const res = await fetchWithTimeout(workingProxy + encodeURIComponent(oddsUrl), {}, 6000);
+      const j = await res.json().catch(()=>null);
+      if (Array.isArray(j)) {
+        steps.push({ step: "The Odds API", ok: true, detail: `${j.length}개 경기 배당 수신` });
+      } else {
+        steps.push({ step: "The Odds API", ok: false, detail: `응답: ${JSON.stringify(j).slice(0,150)}` });
+      }
+    } catch (e) {
+      steps.push({ step: "The Odds API", ok: false, detail: `오류: ${e?.message || e}` });
+    }
+  } else {
+    steps.push({ step: "The Odds API", ok: null, detail: "키 미입력 — the-odds-api.com에서 무료 키 발급 필요" });
+  }
+
+  return steps;
+}
+const FOOTBALL_API_HOST = RUNTIME_CONFIG.footballApiHost; // 하위호환 별칭
+
+// API-Football 팀 ID 매핑 (오리지널 53개팀만 보유, 신규 16개팀은 미보유 → null 반환 후 정적 데이터로 폴백)
+const TEAM_API_IDS = {
+  "브라질":6, "프랑스":2, "스페인":9, "아르헨티나":26, "잉글랜드":10, "독일":25,
+  "포르투갈":27, "네덜란드":1118, "벨기에":1, "크로아티아":3, "대한민국":17, "일본":12,
+  "모로코":31, "세네갈":13, "미국":24, "캐나다":1118, "멕시코":16, "콜롬비아":7,
+  "우루과이":8, "알제리":29, "오스트리아":34, "요르단":1119, "이란":21, "이집트":30,
+  "뉴질랜드":1120, "노르웨이":1121, "이라크":1122, "보스니아":1123, "스위스":15, "카타르":1124,
+  "체코":770, "남아프리카공화국":1126, "카보베르데":1127, "사우디아라비아":1128, "호주":14,
+  "튀르키예":1129, "파라과이":1130, "가나":1131, "파나마":1132, "에콰도르":1133,
+  "코트디부아르":1134, "퀴라소":1135, "스웨덴":1136, "튀니지":28, "콩고민주공화국":1137,
+  "우즈베키스탄":1138, "스코틀랜드":1139, "아이티":1140, "아이슬란드":1141, "나이지리아":1142,
+  "코스타리카":1143, "볼리비아":1144, "베네수엘라":1145,
+  // 16개 신규팀: API-Football ID 미보유 (null) → fetchLiveSquad/fetchLiveInjuries는 null 반환, TeamModal이 정적 SQUADS로 폴백
+  "중국":null, "태국":null, "인도네시아":null, "모잠비크":null, "타지키스탄":null, "인도":null,
+  "아르메니아":null, "몰도바":null, "벨라루스":null, "부르키나파소":null, "러시아":null,
+  "트리니다드토바고":null, "헝가리":null, "카자흐스탄":null, "아제르바이잔":null, "산마리노":null,
+};
+
+async function fetchWithTimeout(url, options = {}, timeoutMs = 3000) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const res = await fetch(url, { ...options, signal: controller.signal });
+    return res;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+// API-Football 공통 호출 헬퍼 — 프록시 경유 + 런타임 키. 실패시 null.
+async function apiFootball(path, timeoutMs = 4000) {
+  if (!RUNTIME_CONFIG.footballApiKey) return null; // 키 없으면 시도 안 함
+  try {
+    const url = `https://${RUNTIME_CONFIG.footballApiHost}/${path}`;
+    const res = await fetchViaProxies(url, {
+      headers: {
+        "x-apisports-key": RUNTIME_CONFIG.footballApiKey,
+        "x-rapidapi-key": RUNTIME_CONFIG.footballApiKey,
+        "x-rapidapi-host": RUNTIME_CONFIG.footballApiHost,
+      },
+    }, timeoutMs);
+    if (!res || !res.ok) return null;
+    const data = await res.json();
+    return data ?? null;
+  } catch (e) {
+    return null; // CORS/타임아웃/키오류 → 정적 폴백
+  }
+}
+
+// 라이브 스쿼드 조회 — 실패/ID없음 시 null (TeamModal에서 정적 SQUADS로 폴백)
+async function fetchLiveSquad(teamName) {
+  const teamId = TEAM_API_IDS[teamName];
+  if (!teamId) return null;
+  const data = await apiFootball(`players/squads?team=${teamId}`);
+  if (!data?.response?.length) return null;
+  return data.response[0]?.players ?? null;
+}
+
+// 부상자 명단 조회 — 실패/ID없음 시 null
+async function fetchLiveInjuries(teamName) {
+  const teamId = TEAM_API_IDS[teamName];
+  if (!teamId) return null;
+  const data = await apiFootball(`injuries?team=${teamId}&season=2026`);
+  if (!Array.isArray(data?.response)) return null;
+  return data.response;
+}
+
+// ★ API-Football 자체 예측(predictions) 조회 — 두 팀 fixture를 찾아 승/무/패 퍼센트 반환
+//   반환: { home, draw, away, advice, fixtureId } | null  (확률은 0~1)
+async function fetchApiFootballPrediction(homeName, awayName, dateISO) {
+  const fid = await findFixtureId(homeName, awayName, dateISO);
+  if (!fid) return null;
+  const data = await apiFootball(`predictions?fixture=${fid}`);
+  const p = data?.response?.[0];
+  if (!p?.predictions) return null;
+  const pc = p.predictions.percent || {};
+  const toNum = s => (typeof s === "string" && s.endsWith("%")) ? parseFloat(s)/100 : null;
+  const home = toNum(pc.home), draw = toNum(pc.draw), away = toNum(pc.away);
+  if (home == null && draw == null && away == null) return null;
+  // ★ API-Football 자체 오버/언더 라인 예측 (예: "2.5", "+2.5" 등 표기) + 예상 골 평균
+  const underOver = p.predictions.under_over || null;
+  const goalsAvg = p.predictions.goals || null; // {home, away} 예상 평균골
+  return { home, draw, away, advice: p.predictions.advice || null, underOver, goalsAvg, fixtureId: fid };
+}
+
+// 두 팀 간 fixture ID 탐색 (h2h). 날짜 우선 매칭.
+async function findFixtureId(homeName, awayName, dateISO) {
+  const homeId = TEAM_API_IDS[homeName], awayId = TEAM_API_IDS[awayName];
+  if (!homeId || !awayId) return null;
+  const data = await apiFootball(`fixtures/headtohead?h2h=${homeId}-${awayId}&next=3`);
+  let arr = data?.response;
+  if (!Array.isArray(arr) || !arr.length) {
+    const past = await apiFootball(`fixtures/headtohead?h2h=${homeId}-${awayId}&last=3`);
+    arr = past?.response;
+  }
+  if (!Array.isArray(arr) || !arr.length) return null;
+  if (dateISO) {
+    const sameDay = arr.find(f => (f?.fixture?.date || "").startsWith(dateISO));
+    if (sameDay) return sameDay.fixture.id;
+  }
+  return arr[0]?.fixture?.id ?? null;
+}
+
+// 경기 배당(시장 컨센서스) 조회 — The Odds API. 실패시 null.
+async function fetchMatchOdds(homeName, awayName) {
+  if (!RUNTIME_CONFIG.oddsApiKey) return null;
+  try {
+    const url = `https://api.the-odds-api.com/v4/sports/soccer_fifa_world_cup/odds?apiKey=${RUNTIME_CONFIG.oddsApiKey}&regions=eu&markets=h2h,totals&oddsFormat=decimal`;
+    const res = await fetchViaProxies(url, {}, 4500);
+    if (!res || !res.ok) return null;
+    const data = await res.json();
+    if (!Array.isArray(data)) return null;
+    const match = data.find(m =>
+      (m.home_team?.includes(homeName) || homeName.includes(m.home_team || "")) &&
+      (m.away_team?.includes(awayName) || awayName.includes(m.away_team || ""))
+    );
+    if (!match?.bookmakers?.length) return null;
+    const bk = match.bookmakers[0];
+    const market = bk?.markets?.find(mk => mk.key === "h2h");
+    let result = { home: null, away: null, draw: null, totals: null };
+    if (market) {
+      const ho = market.outcomes.find(o => o.name === match.home_team);
+      const ao = market.outcomes.find(o => o.name === match.away_team);
+      const do_ = market.outcomes.find(o => o.name === "Draw");
+      result = { home: ho?.price ?? null, away: ao?.price ?? null, draw: do_?.price ?? null, totals: null };
+    }
+    // 토탈(오버/언더) 마켓 — 라인별 over/under 배당
+    const totalsMkt = bk?.markets?.find(mk => mk.key === "totals");
+    if (totalsMkt) {
+      const lines = {};
+      for (const o of totalsMkt.outcomes || []) {
+        const pt = o.point;
+        if (pt == null) continue;
+        if (!lines[pt]) lines[pt] = {};
+        if (o.name === "Over") lines[pt].over = o.price;
+        if (o.name === "Under") lines[pt].under = o.price;
+      }
+      result.totals = lines; // 예: {2.5:{over:1.8,under:2.0}, 3.5:{...}}
+    }
+    if (result.home == null && result.away == null && !result.totals) return null;
+    return result;
+  } catch (e) {
+    return null;
+  }
+}
+
+// 경기 날씨 조회 — 실패시 null
+async function fetchWeather(city) {
+  if (!city || !RUNTIME_CONFIG.weatherApiKey) return null;
+  try {
+    const url = `https://api.openweathermap.org/data/2.5/weather?q=${encodeURIComponent(city)}&appid=${RUNTIME_CONFIG.weatherApiKey}&units=metric`;
+    const res = await fetchWithTimeout(withProxy(url), {}, 4000);
+    if (!res.ok) return null;
+    const data = await res.json();
+    if (!data?.main) return null;
+    return { temp: data.main.temp, condition: data.weather?.[0]?.main, humidity: data.main.humidity, wind: data.wind?.speed };
+  } catch (e) {
+    return null;
+  }
+}
+
+// ★ 종료된 경기 스코어 자동 조회 (API-Football fixtures)
+//   두 팀 ID가 모두 있어야 조회 가능. 실패/미종료시 null → 수동 입력 폴백.
+//   반환: { home, away, status, finished } | null
+async function fetchMatchResult(homeName, awayName, dateISO) {
+  const homeId = TEAM_API_IDS[homeName];
+  const awayId = TEAM_API_IDS[awayName];
+  if (!homeId || !awayId) return null; // 신규 16개팀 등 ID 미보유 → 수동 입력
+  const data = await apiFootball(`fixtures/headtohead?h2h=${homeId}-${awayId}&last=5`, 4500);
+  if (!Array.isArray(data?.response) || !data.response.length) return null;
+
+  // 진행중 상태 코드
+  const LIVE = ["1H", "2H", "HT", "ET", "BT", "P", "LIVE"];
+  const FINISHED = ["FT", "AET", "PEN"];
+
+  // 날짜가 주어지면 같은 날짜 경기 우선, 없으면 가장 최근 종료 경기
+  let candidates = data.response.filter(f => FINISHED.includes(f?.fixture?.status?.short));
+  if (dateISO) {
+    const sameDay = candidates.filter(f => (f?.fixture?.date || "").startsWith(dateISO));
+    if (sameDay.length) candidates = sameDay;
+  }
+  const normalize = (f) => {
+    const apiHomeId = f?.teams?.home?.id;
+    let hg = f?.goals?.home, ag = f?.goals?.away;
+    if (apiHomeId && apiHomeId !== homeId) [hg, ag] = [ag, hg]; // 홈/원정 순서 정규화
+    return { hg, ag, status: f?.fixture?.status?.short };
+  };
+  if (!candidates.length) {
+    const latest = data.response[0];
+    const n = normalize(latest);
+    return {
+      home: n.hg ?? null, away: n.ag ?? null,
+      status: n.status ?? "NS",
+      finished: false,
+      live: LIVE.includes(n.status),
+    };
+  }
+  candidates.sort((a, b) => new Date(b?.fixture?.date || 0) - new Date(a?.fixture?.date || 0));
+  const n = normalize(candidates[0]);
+  return { home: n.hg ?? null, away: n.ag ?? null, status: n.status ?? "FT", finished: true, live: false };
+}
+
+// ═══════════════════════════════════════════════════════════
+// 🧩 UI 프리미티브
+// ═══════════════════════════════════════════════════════════
+function Badge({ children, color = T.accent, style = {} }) {
+  return (
+    <span style={{
+      display:"inline-block", background:color, color:"#fff",
+      borderRadius:6, padding:"2px 8px", fontSize:11, fontWeight:700,
+      letterSpacing:0.3, whiteSpace:"nowrap", ...style
+    }}>{children}</span>
+  );
+}
+
+function FormDots({ formArr = [] }) {
+  return (
+    <div style={{ display:"flex", gap:3 }}>
+      {formArr.map((f,i) => (
+        <div key={i} title={f ? "승":"패/무"} style={{
+          width:8, height:8, borderRadius:"50%",
+          background: f ? T.green : T.red, opacity: 0.4 + (i/formArr.length)*0.6
+        }}/>
+      ))}
+    </div>
+  );
+}
+
+function MiniBar({ value, max = 100, color = T.accent, height = 6, bg = T.dim }) {
+  const pct = Math.min(100, Math.max(0, (Number(value)||0) / max * 100));
+  return (
+    <div style={{ width:"100%", height, background:bg, borderRadius:height/2, overflow:"hidden" }}>
+      <div style={{ width:`${pct}%`, height:"100%", background:color, borderRadius:height/2, transition:"width .4s ease" }}/>
+    </div>
+  );
+}
+
+// 3분할(승/무/패) 막대 — 예측 패널의 핵심 시각화
+function TriBar({ home, draw, away, homeLabel="홈", awayLabel="원정" }) {
+  const h = Math.round((home||0)*1000)/10;
+  const d = Math.round((draw||0)*1000)/10;
+  const a = Math.round((away||0)*1000)/10;
+  return (
+    <div>
+      <div style={{ display:"flex", width:"100%", height:14, borderRadius:7, overflow:"hidden", border:`1px solid ${T.border}` }}>
+        <div style={{ width:`${h}%`, background:T.accent }} title={`${homeLabel} ${h}%`}/>
+        <div style={{ width:`${d}%`, background:T.muted }} title={`무 ${d}%`}/>
+        <div style={{ width:`${a}%`, background:T.gold }} title={`${awayLabel} ${a}%`}/>
+      </div>
+      <div style={{ display:"flex", justifyContent:"space-between", marginTop:4, fontSize:11, color:T.muted }}>
+        <span style={{color:T.accent, fontWeight:700}}>{homeLabel} {h}%</span>
+        <span>무 {d}%</span>
+        <span style={{color:T.gold, fontWeight:700}}>{awayLabel} {a}%</span>
+      </div>
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════
+// 💾 예측 히스토리 저장소 (window.storage 영구 저장, shared:false)
+// ═══════════════════════════════════════════════════════════
+// 예측 결과 카테고리 판정: 홈승/무/원정승 — predictMatch 확률 중 최댓값을 "예측 결과"로 간주
+function predictedOutcome(pred) {
+  if (!pred) return null;
+  const { homeWinProb, drawProb, awayWinProb } = pred;
+  const max = Math.max(homeWinProb, drawProb, awayWinProb);
+  if (max === homeWinProb) return "home";
+  if (max === awayWinProb) return "away";
+  return "draw";
+}
+// 실제 결과 카테고리 판정
+function actualOutcome(homeGoals, awayGoals) {
+  if (homeGoals > awayGoals) return "home";
+  if (homeGoals < awayGoals) return "away";
+  return "draw";
+}
+const OUTCOME_LABEL = { home:"홈승", draw:"무승부", away:"원정승" };
+// 오버/언더 판정 라벨
+const OU_LABEL = { over:"오버", under:"언더" };
+// 예측 시점의 오버/언더 2.5·3.5 "예측 방향"(확률 높은 쪽) 산출
+function predictedOU(overUnder) {
+  if (!overUnder) return null;
+  const out = {};
+  for (const line of [2.5, 3.5]) {
+    const m = overUnder[line];
+    if (!m) continue;
+    out[line] = m.over >= m.under ? "over" : "under";
+  }
+  return out; // 예: {2.5:"over", 3.5:"under"}
+}
+// 실제 합산골 → 라인별 오버/언더 실제 결과
+function actualOU(homeGoals, awayGoals) {
+  const total = homeGoals + awayGoals;
+  return { 2.5: total > 2.5 ? "over" : "under", 3.5: total > 3.5 ? "over" : "under" };
+}
+
+async function savePredictionRecord(record) {
+  try {
+    const key = `predictions:${record.id}`;
+    const result = await window.storage.set(key, JSON.stringify(record), false);
+    return !!result;
+  } catch (e) {
+    console.error("예측 저장 실패:", e);
+    return false;
+  }
+}
+async function loadAllPredictions() {
+  try {
+    const list = await window.storage.list("predictions:", false);
+    if (!list?.keys?.length) return [];
+    const records = [];
+    for (const k of list.keys) {
+      try {
+        const r = await window.storage.get(k, false);
+        if (r?.value) records.push(JSON.parse(r.value));
+      } catch (e) { /* 개별 레코드 손상 시 스킵 */ }
+    }
+    records.sort((a,b)=> (b.savedAt||0) - (a.savedAt||0));
+    return records;
+  } catch (e) {
+    console.error("예측 히스토리 로드 실패:", e);
+    return [];
+  }
+}
+async function deletePredictionRecord(id) {
+  try {
+    await window.storage.delete(`predictions:${id}`, false);
+    return true;
+  } catch (e) {
+    return false;
+  }
+}
+
+// ★ 저장된(대기중) 예측 레코드에 실제 스코어를 채워 적중/미적중 확정 후 갱신
+function applyResultToRecord(record, homeGoals, awayGoals, source = "manual") {
+  const actual = actualOutcome(homeGoals, awayGoals);
+  const isHit = record.predictedOutcome === actual;
+
+  // ★ 오버/언더 적중 판정 (구버전 레코드는 predictedOU가 없을 수 있어 옵셔널 처리)
+  const ouActual = actualOU(homeGoals, awayGoals);
+  let ouHits = null;
+  if (record.predictedOU) {
+    ouHits = {};
+    for (const line of [2.5, 3.5]) {
+      if (record.predictedOU[line]) ouHits[line] = record.predictedOU[line] === ouActual[line];
+    }
+  }
+
+  return {
+    ...record,
+    actualScore: { home: homeGoals, away: awayGoals },
+    actualOutcome: actual,
+    isHit,
+    actualOU: ouActual,
+    ouHits, // 예: {2.5:true, 3.5:false} — record.predictedOU 없으면 null
+    resultStatus: "final",
+    resultSource: source,          // "api" | "manual"
+    resolvedAt: Date.now(),
+  };
+}
+
+// ★ 결과 대기중(resultStatus:"pending") 레코드들을 API로 일괄 동기화
+//   반환: { updated: 갱신건수, checked: 조회시도건수 }
+async function autoSyncPendingResults() {
+  let updated = 0, checked = 0;
+  try {
+    const all = await loadAllPredictions();
+    const pending = all.filter(r => r.resultStatus === "pending");
+    for (const rec of pending) {
+      checked++;
+      const res = await fetchMatchResult(rec.home, rec.away, rec.matchDate);
+      if (res && res.finished && res.home != null && res.away != null) {
+        const filled = applyResultToRecord(rec, res.home, res.away, "api");
+        const ok = await savePredictionRecord(filled);
+        if (ok) {
+          updated++;
+          try { updateEloAfterMatch(rec.home, rec.away, res.home, res.away); } catch (e) { /* ELO 갱신 실패 무시 */ }
+        }
+      }
+    }
+  } catch (e) {
+    console.error("결과 자동 동기화 실패:", e);
+  }
+  return { updated, checked };
+}
+
+// ═══════════════════════════════════════════════════════════
+// 🔍 CrossValidationPanel — SPI/Opta/시장배당 교차검증
+// ═══════════════════════════════════════════════════════════
+const pct = v => (typeof v === "number" && !isNaN(v)) ? `${(v*100).toFixed(1)}%` : "N/A";
+// 정적→실시간 확률 변화량 표시 (+2.3%p 형태, 색 없이 텍스트만)
+const fmtShift = (from, to) => {
+  if (typeof from !== "number" || typeof to !== "number") return "—";
+  const d = (to - from) * 100;
+  const sign = d > 0 ? "+" : "";
+  return `${sign}${d.toFixed(1)}%p`;
+};
+
+function CrossValidationPanel({ crossVal, loading, home, away }) {
+  if (loading) {
+    return <div style={{ padding:12, color:T.muted, fontSize:12, textAlign:"center" }}>교차검증 데이터 수집 중...</div>;
+  }
+  if (!crossVal || crossVal.error) {
+    return <div style={{ padding:12, color:T.muted, fontSize:12, textAlign:"center" }}>교차검증 데이터를 불러올 수 없습니다 (정적 모델 결과만 표시).</div>;
+  }
+  const confColor = crossVal.confidence >= 70 ? T.green : crossVal.confidence >= 40 ? T.gold : T.red;
+  return (
+    <div style={{ background:T.surface, border:`1px solid ${T.border}`, borderRadius:10, padding:12, marginTop:10 }}>
+      <div style={{ fontSize:12, fontWeight:700, color:T.cyan, marginBottom:8 }}>🔬 교차검증 (Opta / 시장배당 / API예측 / SPI)</div>
+      <div style={{ display:"grid", gridTemplateColumns:"minmax(0,1fr) minmax(0,1fr)", overflowWrap:"break-word", gap:8, fontSize:11, color:T.text }}>
+        <div>
+          <div style={{ color:T.muted, marginBottom:2 }}>Opta 파워랭킹</div>
+          {crossVal.opta
+            ? <div>{home} {pct(crossVal.opta.home)} · 무 {pct(crossVal.opta.draw)} · {away} {pct(crossVal.opta.away)}</div>
+            : <div style={{color:T.muted}}>데이터 없음</div>}
+        </div>
+        <div>
+          <div style={{ color:T.muted, marginBottom:2 }}>시장 배당 (마진제거)</div>
+          {crossVal.market
+            ? <div>{home} {pct(crossVal.market.home)} · 무 {pct(crossVal.market.draw)} · {away} {pct(crossVal.market.away)}</div>
+            : <div style={{color:T.muted}}>실시간 배당 미연동</div>}
+        </div>
+        <div>
+          <div style={{ color:T.muted, marginBottom:2 }}>API-Football 예측</div>
+          {crossVal.apiFootball
+            ? <div>{home} {pct(crossVal.apiFootball.home)} · 무 {pct(crossVal.apiFootball.draw)} · {away} {pct(crossVal.apiFootball.away)}
+                {crossVal.apiFootball.advice && <div style={{color:T.dim, fontSize:10, marginTop:1}}>💡 {crossVal.apiFootball.advice}</div>}
+                {crossVal.apiFootball.underOver && <div style={{color:T.dim, fontSize:10, marginTop:1}}>O/U: {crossVal.apiFootball.underOver}</div>}
+                {crossVal.apiFootball.goalsAvg && <div style={{color:T.dim, fontSize:10, marginTop:1}}>예상골: 홈 {crossVal.apiFootball.goalsAvg.home ?? "-"} / 원정 {crossVal.apiFootball.goalsAvg.away ?? "-"}</div>}
+              </div>
+            : <div style={{color:T.muted}}>미연동 (프록시/키 필요)</div>}
+        </div>
+        <div>
+          <div style={{ color:T.muted, marginBottom:2 }}>SPI (보관용·정적)</div>
+          {crossVal.spi
+            ? <div>{home} {pct(crossVal.spi.home)} · 무 {pct(crossVal.spi.draw)} · {away} {pct(crossVal.spi.away)}</div>
+            : <div style={{color:T.muted}}>데이터 없음</div>}
+        </div>
+      </div>
+      <div style={{ marginTop:10, display:"flex", alignItems:"center", gap:10 }}>
+        <span style={{ fontSize:11, color:T.muted, minWidth:90 }}>모델 신뢰도</span>
+        <div style={{ flex:1 }}><MiniBar value={crossVal.confidence} max={100} color={confColor} height={8}/></div>
+        <span style={{ fontSize:12, fontWeight:700, color:confColor }}>{crossVal.confidence}/100</span>
+      </div>
+      {crossVal.deviation !== null &&
+        <div style={{ marginTop:6, fontSize:11, color:T.muted }}>
+          모델 vs 컨센서스 편차: {(crossVal.deviation*100).toFixed(1)}%p
+        </div>}
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════
+// 🎯 PredictPanel — 예측 결과 + 결과입력(적중판정) 패널
+// ═══════════════════════════════════════════════════════════
+function PredictPanel({ home, away, sims = 30000, matchDate, onSaved }) {
+  const [result, setResult] = useState(null);
+  const [liveLoading, setLiveLoading] = useState(false);
+  const [crossVal, setCrossVal] = useState(null);
+  const [crossValLoading, setCrossValLoading] = useState(false);
+  const [homeScore, setHomeScore] = useState("");
+  const [awayScore, setAwayScore] = useState("");
+  const [saveStatus, setSaveStatus] = useState(null); // null | saving | saved | error
+  const [savedRecord, setSavedRecord] = useState(null);
+  const [fetchStatus, setFetchStatus] = useState(null); // null|fetching|found|notfound|notfinished|error
+
+  // 예측 실행: 먼저 정적 결과 즉시 표시 → 이어서 실시간 배당/예측 반영본으로 갱신
+  useEffect(() => {
+    if (!home || !away || home === away) { setResult(null); return; }
+    let cancelled = false;
+    // 1) 정적 결과 즉시
+    const r0 = predictMatch(home, away, sims);
+    setResult(r0);
+    setHomeScore(""); setAwayScore(""); setSaveStatus(null); setSavedRecord(null); setFetchStatus(null);
+    // 2) 실시간 반영본 (프록시/키 있으면 적용, 없으면 liveApplied:false로 동일)
+    setLiveLoading(true);
+    predictMatchLive(home, away, sims, matchDate).then(rl => {
+      if (!cancelled) { setResult(rl); setLiveLoading(false); }
+    }).catch(() => { if (!cancelled) setLiveLoading(false); });
+    return () => { cancelled = true; };
+  }, [home, away, sims, matchDate]);
+
+  // 교차검증 (result 갱신마다 재실행, 실시간 소스 포함)
+  useEffect(() => {
+    if (!result) { setCrossVal(null); return; }
+    let cancelled = false;
+    setCrossValLoading(true);
+    crossValidate(home, away, result, matchDate).then(cv => {
+      if (!cancelled) { setCrossVal(cv); setCrossValLoading(false); }
+    });
+    return () => { cancelled = true; };
+  }, [home, away, result, matchDate]);
+
+  // 공통: 예측 레코드 골격 생성 (스코어 미정 = pending)
+  const buildBaseRecord = useCallback(() => ({
+    id: `${home}_${away}_${Date.now()}`,
+    home, away,
+    matchDate: matchDate || null,
+    predictedProbs: { home: result.homeWinProb, draw: result.drawProb, away: result.awayWinProb },
+    predictedOutcome: predictedOutcome(result),
+    predictedOU: predictedOU(result.overUnder),   // ★ {2.5:"over"|"under", 3.5:...}
+    overUnderProbs: result.overUnder ?? null,     // ★ 예측 시점 확률 박제
+    predictedTopScore: result.topScores?.[0]?.score ?? null,
+    actualScore: null,
+    actualOutcome: null,
+    isHit: null,
+    actualOU: null,
+    ouHits: null,
+    resultStatus: "pending",      // pending → final
+    resultSource: null,
+    confidence: crossVal?.confidence ?? null,
+    sims: result.sims,
+    lambdaHome: result.lambdaHome,
+    lambdaAway: result.lambdaAway,
+    savedAt: Date.now(),
+  }), [home, away, matchDate, result, crossVal]);
+
+  // ① 예측 즉시 저장 (스코어 대기중) — 경기 전에 예측만 박제
+  const handleSavePrediction = useCallback(async () => {
+    if (!result) return;
+    setSaveStatus("saving");
+    const record = buildBaseRecord();
+    const ok = await savePredictionRecord(record);
+    if (ok) { setSaveStatus("saved"); setSavedRecord(record); if (onSaved) onSaved(record); }
+    else setSaveStatus("error");
+  }, [result, buildBaseRecord, onSaved]);
+
+  // ② API로 종료된 경기 스코어 자동 조회 → 적중판정 후 저장/갱신
+  const handleFetchResult = useCallback(async () => {
+    if (!result) return;
+    setFetchStatus("fetching");
+    const res = await fetchMatchResult(home, away, matchDate);
+    if (res && res.home != null && res.away != null && res.finished) {
+      const base = savedRecord && savedRecord.resultStatus === "pending" ? savedRecord : buildBaseRecord();
+      const filled = applyResultToRecord(base, res.home, res.away, "api");
+      const ok = await savePredictionRecord(filled);
+      if (ok) {
+        try { updateEloAfterMatch(home, away, res.home, res.away); } catch (e) {}
+        setSavedRecord(filled); setSaveStatus("saved"); setFetchStatus("found");
+        setHomeScore(String(res.home)); setAwayScore(String(res.away));
+        if (onSaved) onSaved(filled);
+      } else setFetchStatus("error");
+    } else if (res && !res.finished) {
+      setFetchStatus("notfinished");
+    } else {
+      setFetchStatus("notfound"); // ID 미보유/미종료/CORS → 수동 입력 유도
+    }
+  }, [home, away, matchDate, result, savedRecord, buildBaseRecord, onSaved]);
+
+  // ③ 수동 입력 저장 (폴백)
+  const handleSaveResult = useCallback(async () => {
+    if (homeScore === "" || awayScore === "" || !result) return;
+    const hg = parseInt(homeScore, 10), ag = parseInt(awayScore, 10);
+    if (isNaN(hg) || isNaN(ag) || hg < 0 || ag < 0) { setSaveStatus("error"); return; }
+
+    setSaveStatus("saving");
+    const base = savedRecord && savedRecord.resultStatus === "pending" ? savedRecord : buildBaseRecord();
+    const filled = applyResultToRecord(base, hg, ag, "manual");
+    const ok = await savePredictionRecord(filled);
+    if (ok) {
+      try { updateEloAfterMatch(home, away, hg, ag); } catch (e) { /* ELO 갱신 실패해도 저장은 유지 */ }
+      setSaveStatus("saved");
+      setSavedRecord(filled);
+      if (onSaved) onSaved(filled);
+    } else {
+      setSaveStatus("error");
+    }
+  }, [home, away, homeScore, awayScore, result, savedRecord, buildBaseRecord, onSaved]);
+
+  if (!home || !away) {
+    return <div style={{ padding:24, color:T.muted, textAlign:"center" }}>홈팀과 원정팀을 선택해주세요.</div>;
+  }
+  if (home === away) {
+    return <div style={{ padding:24, color:T.red, textAlign:"center" }}>서로 다른 팀을 선택해주세요.</div>;
+  }
+  if (!result) {
+    return <div style={{ padding:24, color:T.muted, textAlign:"center" }}>예측 계산 중...</div>;
+  }
+
+  return (
+    <div style={{ background:T.card, border:`1px solid ${T.border}`, borderRadius:14, padding:16 }}>
+      <div style={{ display:"flex", alignItems:"center", justifyContent:"center", gap:10, fontSize:18, fontWeight:800, marginBottom:4 }}>
+        <span>{flag(home)} {home}</span>
+        <span style={{ color:T.muted, fontSize:13, fontWeight:400 }}>vs</span>
+        <span>{away} {flag(away)}</span>
+      </div>
+      {matchDate && <div style={{ textAlign:"center", fontSize:11, color:T.cyan, marginBottom:6 }}>📅 {matchDate} 경기</div>}
+
+      {/* 실시간 반영 상태 배지 */}
+      <div style={{ textAlign:"center", marginBottom:10 }}>
+        {liveLoading
+          ? <Badge color={T.dim}>⏳ 실시간 데이터 반영 중...</Badge>
+          : result.liveApplied
+            ? <Badge color={T.green}>🔴 실시간 반영됨 · {result.liveSources?.map(s=>s==="market"?"배당":s==="apiFootball"?"API예측":s).join("+")} (가중 {Math.round((result.liveWeight||0)*100)}%)</Badge>
+            : <Badge color={T.gold}>📁 정적 모델 (실시간 미연동 — 설정에서 프록시/키 확인)</Badge>}
+      </div>
+
+      <TriBar home={result.homeWinProb} draw={result.drawProb} away={result.awayWinProb} homeLabel={home} awayLabel={away}/>
+
+      {/* 정적 → 실시간 변화량 */}
+      {result.liveApplied && result.staticProbs && (
+        <div style={{ marginTop:6, fontSize:10, color:T.muted, textAlign:"center" }}>
+          정적 대비 변화: {home} {fmtShift(result.staticProbs.home, result.homeWinProb)} ·
+          무 {fmtShift(result.staticProbs.draw, result.drawProb)} ·
+          {away} {fmtShift(result.staticProbs.away, result.awayWinProb)}
+        </div>
+      )}
+
+      <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:8, marginTop:14 }}>
+        <div style={{ background:T.surface, borderRadius:8, padding:10, textAlign:"center" }}>
+          <div style={{ fontSize:11, color:T.muted }}>예상 기대득점 (xG)</div>
+          <div style={{ fontSize:18, fontWeight:800, color:T.text }}>
+            {result.lambdaHome.toFixed(2)} : {result.lambdaAway.toFixed(2)}
+          </div>
+        </div>
+        <div style={{ background:T.surface, borderRadius:8, padding:10, textAlign:"center" }}>
+          <div style={{ fontSize:11, color:T.muted }}>ELO (홈/원정)</div>
+          <div style={{ fontSize:18, fontWeight:800, color:T.text }}>
+            {Math.round(result.homeElo)} : {Math.round(result.awayElo)}
+          </div>
+        </div>
+      </div>
+
+      <div style={{ marginTop:12 }}>
+        <div style={{ fontSize:12, color:T.muted, marginBottom:6 }}>주요 예상 스코어라인 (Top 5)</div>
+        <div style={{ display:"flex", gap:6, flexWrap:"wrap" }}>
+          {result.topScores.map((s,i) => (
+            <Badge key={i} color={i===0 ? T.accent : T.dim} style={{ color: i===0 ? "#fff":T.text }}>
+              {s.score} ({(s.prob*100).toFixed(1)}%)
+            </Badge>
+          ))}
+        </div>
+      </div>
+
+      {/* ★ 오버/언더 2.5 · 3.5 (총 골수 기준) */}
+      {result.overUnder && (
+        <div style={{ marginTop:12 }}>
+          <div style={{ fontSize:12, color:T.muted, marginBottom:6 }}>오버/언더 (총 골수 기준)</div>
+          <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:8 }}>
+            {[2.5, 3.5].map(line => {
+              const m = result.overUnder[line];
+              if (!m) return null;
+              const pickOver = m.over >= m.under;
+              return (
+                <div key={line} style={{ background:T.surface, borderRadius:8, padding:10 }}>
+                  <div style={{ fontSize:11, color:T.muted, marginBottom:6, textAlign:"center" }}>라인 {line}</div>
+                  <div style={{ display:"flex", justifyContent:"space-between", fontSize:12, marginBottom:4 }}>
+                    <span style={{ fontWeight: pickOver?800:400, color: pickOver?T.green:T.text }}>오버 {(m.over*100).toFixed(1)}%</span>
+                    <span style={{ fontWeight: !pickOver?800:400, color: !pickOver?T.green:T.text }}>언더 {(m.under*100).toFixed(1)}%</span>
+                  </div>
+                  <MiniBar value={m.over*100} max={100} color={T.green} height={6}/>
+                  <div style={{ textAlign:"center", marginTop:6 }}>
+                    <Badge color={pickOver?T.green:T.gold}>예측: {OU_LABEL[pickOver?"over":"under"]} {line}</Badge>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+          {result.liveApplied && result.staticOverUnder && (
+            <div style={{ marginTop:6, fontSize:10, color:T.muted, textAlign:"center" }}>
+              정적 대비 변화: 2.5오버 {fmtShift(result.staticOverUnder[2.5]?.over, result.overUnder[2.5]?.over)} ·
+              3.5오버 {fmtShift(result.staticOverUnder[3.5]?.over, result.overUnder[3.5]?.over)}
+            </div>
+          )}
+          {result.marketTotals && (
+            <div style={{ marginTop:6, fontSize:10, color:T.cyan, textAlign:"center" }}>
+              시장배당 토탈: {Object.entries(result.marketTotals).map(([line,o])=>`${line}(O${o.over ?? "-"}/U${o.under ?? "-"})`).join(" · ")}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* 몬테카를로 시뮬레이션 + 블렌딩 설명 */}
+      <div style={{ marginTop:10, fontSize:11, color:T.muted, textAlign:"center" }}>
+        🎲 몬테카를로 <b style={{color:T.cyan}}>{result.sims.toLocaleString()}회</b> ·
+        {result.liveApplied
+          ? " ELO+ML 모델 + 실시간 배당/예측 가중 혼합"
+          : " ELO+ML 앙상블 50% + 시뮬레이션 50% 블렌딩"}
+      </div>
+
+      <CrossValidationPanel crossVal={crossVal} loading={crossValLoading} home={home} away={away}/>
+
+      {/* ★ 예측 저장 + 실시간 결과 자동 조회 */}
+      <div style={{ marginTop:14, background:T.surface, border:`1px solid ${T.border}`, borderRadius:10, padding:12 }}>
+        <div style={{ fontSize:12, fontWeight:700, color:T.gold, marginBottom:8 }}>💾 예측 저장 & 결과 추적</div>
+
+        {/* 1단계: 예측 즉시 저장 (경기 전) */}
+        <div style={{ display:"flex", gap:8, justifyContent:"center", flexWrap:"wrap" }}>
+          <button onClick={handleSavePrediction} disabled={saveStatus==="saving"}
+            style={{ background: savedRecord && savedRecord.resultStatus==="pending" ? T.dim : T.accent, color:"#fff", border:"none", borderRadius:8, padding:"8px 16px", fontWeight:700, cursor:"pointer", fontSize:13, opacity: saveStatus==="saving"?0.6:1 }}>
+            {savedRecord ? "✓ 예측 저장됨" : "① 예측 저장 (결과 대기)"}
+          </button>
+          <button onClick={handleFetchResult} disabled={fetchStatus==="fetching"}
+            style={{ background:T.green, color:"#fff", border:"none", borderRadius:8, padding:"8px 16px", fontWeight:700, cursor:"pointer", fontSize:13, opacity: fetchStatus==="fetching"?0.6:1 }}>
+            {fetchStatus==="fetching" ? "조회 중..." : "② 실시간 결과 조회"}
+          </button>
+        </div>
+
+        {/* 조회 상태 메시지 */}
+        {fetchStatus==="found" && (
+          <div style={{ marginTop:8, textAlign:"center", color:T.green, fontSize:12 }}>✅ API에서 종료된 경기 스코어를 가져왔습니다.</div>
+        )}
+        {fetchStatus==="notfinished" && (
+          <div style={{ marginTop:8, textAlign:"center", color:T.gold, fontSize:12 }}>⏳ 아직 경기가 종료되지 않았습니다. 종료 후 다시 조회하세요.</div>
+        )}
+        {fetchStatus==="notfound" && (
+          <div style={{ marginTop:8, textAlign:"center", color:T.muted, fontSize:12 }}>
+            자동 조회 불가 (팀 API ID 미보유 또는 미연동). 아래에 직접 입력해주세요.
+          </div>
+        )}
+
+        {/* 폴백: 수동 입력 */}
+        <div style={{ marginTop:12, paddingTop:12, borderTop:`1px dashed ${T.border}` }}>
+          <div style={{ fontSize:11, color:T.muted, marginBottom:8, textAlign:"center" }}>또는 직접 결과 입력 (적중 판정)</div>
+          <div style={{ display:"flex", alignItems:"center", justifyContent:"center", gap:10 }}>
+            <span style={{ fontSize:12, color:T.muted, minWidth:60, textAlign:"right" }}>{home}</span>
+            <input type="number" min="0" value={homeScore} onChange={e=>setHomeScore(e.target.value)}
+              placeholder="0" style={{ width:50, padding:"6px 8px", borderRadius:6, border:`1px solid ${T.border}`, background:T.bg, color:T.text, textAlign:"center" }}/>
+            <span style={{ color:T.muted }}>:</span>
+            <input type="number" min="0" value={awayScore} onChange={e=>setAwayScore(e.target.value)}
+              placeholder="0" style={{ width:50, padding:"6px 8px", borderRadius:6, border:`1px solid ${T.border}`, background:T.bg, color:T.text, textAlign:"center" }}/>
+            <span style={{ fontSize:12, color:T.muted, minWidth:60 }}>{away}</span>
+          </div>
+          <div style={{ textAlign:"center", marginTop:10 }}>
+            <button onClick={handleSaveResult} disabled={saveStatus==="saving"}
+              style={{ background:T.card, color:T.text, border:`1px solid ${T.border}`, borderRadius:8, padding:"7px 18px", fontWeight:700, cursor:"pointer", fontSize:12, opacity: saveStatus==="saving"?0.6:1 }}>
+              {saveStatus==="saving" ? "저장 중..." : "수동 저장 & 적중 판정"}
+            </button>
+          </div>
+        </div>
+
+        {/* 최종 결과 표시 */}
+        {saveStatus === "saved" && savedRecord && savedRecord.resultStatus === "final" && (
+          <div style={{ marginTop:12, textAlign:"center", fontSize:13 }}>
+            <div style={{ fontSize:15, fontWeight:800, marginBottom:4 }}>
+              {savedRecord.actualScore.home} : {savedRecord.actualScore.away}
+              <span style={{ fontSize:11, color:T.muted, marginLeft:6 }}>
+                ({savedRecord.resultSource === "api" ? "API 자동" : "수동 입력"})
+              </span>
+            </div>
+            예측: <b>{OUTCOME_LABEL[savedRecord.predictedOutcome]}</b> · 실제: <b>{OUTCOME_LABEL[savedRecord.actualOutcome]}</b>{" "}
+            <Badge color={savedRecord.isHit ? T.green : T.red}>{savedRecord.isHit ? "✅ 적중" : "❌ 미적중"}</Badge>
+            <div style={{ marginTop:4, color:T.muted, fontSize:11 }}>예측 기록 탭에 저장되었습니다.</div>
+          </div>
+        )}
+        {saveStatus === "saved" && savedRecord && savedRecord.resultStatus === "pending" && (
+          <div style={{ marginTop:12, textAlign:"center", fontSize:12, color:T.cyan }}>
+            🔖 예측이 저장되었습니다 (결과 대기중). 경기 종료 후 "실시간 결과 조회"를 누르거나 예측 기록 탭에서 일괄 동기화하세요.
+          </div>
+        )}
+        {(saveStatus === "error" || fetchStatus === "error") && (
+          <div style={{ marginTop:10, textAlign:"center", color:T.red, fontSize:12 }}>
+            저장/조회 실패. 다시 시도해주세요.
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════
+// 📜 PredictionHistory — 누적 예측 히스토리 + 정확도
+// ═══════════════════════════════════════════════════════════
+function PredictionHistory({ refreshKey }) {
+  const [records, setRecords] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [syncing, setSyncing] = useState(false);
+  const [syncMsg, setSyncMsg] = useState(null);
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    const data = await loadAllPredictions();
+    setRecords(data);
+    setLoading(false);
+  }, []);
+
+  useEffect(() => { load(); }, [load, refreshKey]);
+
+  const handleDelete = useCallback(async (id) => {
+    await deletePredictionRecord(id);
+    load();
+  }, [load]);
+
+  // ★ 결과 대기중 예측 일괄 동기화 (API-Football)
+  const handleSync = useCallback(async () => {
+    setSyncing(true); setSyncMsg(null);
+    const { updated, checked } = await autoSyncPendingResults();
+    setSyncMsg(checked === 0 ? "대기중인 예측이 없습니다." : `${checked}건 조회 → ${updated}건 결과 확정`);
+    await load();
+    setSyncing(false);
+  }, [load]);
+
+  const resolved = records.filter(r => r.resultStatus === "final");
+  const pending = records.filter(r => r.resultStatus !== "final");
+  const total = resolved.length;
+  const hits = resolved.filter(r => r.isHit).length;
+  const accuracy = total > 0 ? (hits / total * 100) : 0;
+
+  // ★ 오버/언더 누적 정확도 (구버전 레코드는 ouHits 없음 → 자동 제외)
+  const ouResolved25 = resolved.filter(r => r.ouHits?.[2.5] != null);
+  const ouHits25 = ouResolved25.filter(r => r.ouHits[2.5]).length;
+  const ouAcc25 = ouResolved25.length > 0 ? (ouHits25/ouResolved25.length*100) : null;
+  const ouResolved35 = resolved.filter(r => r.ouHits?.[3.5] != null);
+  const ouHits35 = ouResolved35.filter(r => r.ouHits[3.5]).length;
+  const ouAcc35 = ouResolved35.length > 0 ? (ouHits35/ouResolved35.length*100) : null;
+
+  if (loading) {
+    return <div style={{ padding:24, textAlign:"center", color:T.muted }}>예측 히스토리 불러오는 중...</div>;
+  }
+
+  return (
+    <div>
+      <div style={{
+        background:T.card, border:`1px solid ${T.border}`, borderRadius:14,
+        padding:16, marginBottom:14, display:"flex", alignItems:"center", justifyContent:"space-between"
+      }}>
+        <div>
+          <div style={{ fontSize:12, color:T.muted }}>누적 정확도</div>
+          <div style={{ fontSize:26, fontWeight:900, color: accuracy>=50 ? T.green : T.red }}>
+            {accuracy.toFixed(1)}%
+          </div>
+        </div>
+        <div style={{ textAlign:"right" }}>
+          <div style={{ fontSize:12, color:T.muted }}>적중 / 확정</div>
+          <div style={{ fontSize:18, fontWeight:700, color:T.text }}>{hits} / {total}</div>
+          {pending.length > 0 && <div style={{ fontSize:10, color:T.cyan, marginTop:2 }}>결과 대기 {pending.length}건</div>}
+        </div>
+        <div style={{ width:120 }}>
+          <MiniBar value={accuracy} max={100} color={accuracy>=50 ? T.green : T.red} height={10}/>
+        </div>
+      </div>
+
+      {(ouAcc25 != null || ouAcc35 != null) && (
+        <div style={{
+          background:T.card, border:`1px solid ${T.border}`, borderRadius:14,
+          padding:"10px 16px", marginBottom:14, display:"flex", justifyContent:"space-around", fontSize:12
+        }}>
+          {ouAcc25 != null && (
+            <div style={{ textAlign:"center" }}>
+              <div style={{ color:T.muted, fontSize:11 }}>O/U 2.5 정확도</div>
+              <div style={{ fontWeight:800, color: ouAcc25>=50?T.green:T.red }}>{ouAcc25.toFixed(1)}% ({ouHits25}/{ouResolved25.length})</div>
+            </div>
+          )}
+          {ouAcc35 != null && (
+            <div style={{ textAlign:"center" }}>
+              <div style={{ color:T.muted, fontSize:11 }}>O/U 3.5 정확도</div>
+              <div style={{ fontWeight:800, color: ouAcc35>=50?T.green:T.red }}>{ouAcc35.toFixed(1)}% ({ouHits35}/{ouResolved35.length})</div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ★ 결과 대기중 예측 일괄 동기화 */}
+      <div style={{ display:"flex", alignItems:"center", gap:10, marginBottom:14 }}>
+        <button onClick={handleSync} disabled={syncing || pending.length===0}
+          style={{ flex:1, background: pending.length>0 ? T.green : T.dim, color:"#fff", border:"none",
+            borderRadius:10, padding:"10px", fontWeight:700, fontSize:13,
+            cursor: pending.length>0 ? "pointer":"default", opacity: syncing?0.6:1 }}>
+          {syncing ? "동기화 중..." : `🔄 종료 경기 결과 일괄 동기화${pending.length>0 ? ` (${pending.length}건)` : ""}`}
+        </button>
+        <button onClick={load} title="새로고침"
+          style={{ background:T.card, border:`1px solid ${T.border}`, color:T.text, borderRadius:10, padding:"10px 14px", cursor:"pointer" }}>↻</button>
+      </div>
+      {syncMsg && <div style={{ marginTop:-6, marginBottom:12, textAlign:"center", fontSize:12, color:T.cyan }}>{syncMsg}</div>}
+
+      {!records.length ? (
+        <div style={{ padding:24, textAlign:"center", color:T.muted, border:`1px dashed ${T.border}`, borderRadius:12 }}>
+          저장된 예측 기록이 없습니다.<br/>
+          <span style={{ fontSize:12 }}>예측 탭에서 "예측 저장"을 누르면 여기에 누적됩니다.</span>
+        </div>
+      ) : (
+        <div style={{ display:"flex", flexDirection:"column", gap:8 }}>
+          {records.map(r => {
+            const isFinal = r.resultStatus === "final";
+            return (
+              <div key={r.id} style={{
+                background:T.card, border:`1px solid ${isFinal ? T.border : T.borderHi}`, borderRadius:10,
+                padding:"10px 12px", display:"flex", alignItems:"center", gap:10, fontSize:12
+              }}>
+                <div style={{ flex:1, minWidth:0 }}>
+                  <div style={{ fontWeight:700, color:T.text }}>
+                    {flag(r.home)} {r.home}{" "}
+                    {isFinal
+                      ? <span style={{ color:T.gold }}>{r.actualScore.home} - {r.actualScore.away}</span>
+                      : <span style={{ color:T.muted }}>vs</span>}{" "}
+                    {r.away} {flag(r.away)}
+                  </div>
+                  <div style={{ color:T.muted, marginTop:2 }}>
+                    예측: {OUTCOME_LABEL[r.predictedOutcome]}
+                    {r.predictedTopScore ? ` ${r.predictedTopScore}` : ""}
+                    {" "}(홈 {pct(r.predictedProbs.home)} · 무 {pct(r.predictedProbs.draw)} · 원정 {pct(r.predictedProbs.away)})
+                    {r.confidence != null && ` · 신뢰도 ${r.confidence}/100`}
+                    {r.sims ? ` · ${r.sims.toLocaleString()}회` : ""}
+                  </div>
+                  {r.predictedOU && (
+                    <div style={{ color:T.muted, marginTop:2, fontSize:11 }}>
+                      O/U 예측: 2.5 {OU_LABEL[r.predictedOU[2.5]]}
+                      {isFinal && r.ouHits?.[2.5] != null && (r.ouHits[2.5] ? " ✅" : " ❌")}
+                      {" · "}3.5 {OU_LABEL[r.predictedOU[3.5]]}
+                      {isFinal && r.ouHits?.[3.5] != null && (r.ouHits[3.5] ? " ✅" : " ❌")}
+                      {isFinal && r.actualOU && ` (실제 합계 ${r.actualScore.home + r.actualScore.away}골)`}
+                    </div>
+                  )}
+                  <div style={{ color:T.dim, marginTop:2, fontSize:10 }}>
+                    예측 {new Date(r.savedAt).toLocaleString("ko-KR")}
+                    {isFinal && r.resultSource && ` · 결과 ${r.resultSource==="api" ? "API 자동" : "수동"}`}
+                  </div>
+                </div>
+                {isFinal
+                  ? <Badge color={r.isHit ? T.green : T.red}>{r.isHit ? "✅ 적중" : "❌ 미적중"}</Badge>
+                  : <Badge color={T.cyan}>⏳ 대기</Badge>}
+                <button onClick={()=>handleDelete(r.id)} title="삭제"
+                  style={{ background:"transparent", border:"none", color:T.muted, cursor:"pointer", fontSize:14 }}>
+                  🗑
+                </button>
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════
+// 🪪 TeamModal — 팀 상세 (스쿼드/포메이션/통계·xG/부상)
+//    ★ API 오류 처리 강화: 모든 외부 호출 try/catch, 실패시 정적 SQUADS 폴백
+// ═══════════════════════════════════════════════════════════
+function TeamModal({ teamName, onClose }) {
+  const [tab, setTab] = useState("squad");
+  const [liveSquad, setLiveSquad] = useState(null);
+  const [liveInjuries, setLiveInjuries] = useState(null);
+  const [apiLoading, setApiLoading] = useState(true);
+  const [apiError, setApiError] = useState(false);
+
+  const squad = SQUADS[teamName];
+  const elo = ELO[teamName];
+  const spi = SPI_RATINGS[teamName];
+  const opta = OPTA_RANKINGS[teamName];
+
+  useEffect(() => {
+    if (!teamName) return;
+    let cancelled = false;
+    setApiLoading(true); setApiError(false); setLiveSquad(null); setLiveInjuries(null);
+    (async () => {
+      try {
+        const [sq, inj] = await Promise.allSettled([
+          fetchLiveSquad(teamName),
+          fetchLiveInjuries(teamName),
+        ]);
+        if (cancelled) return;
+        if (sq.status === "fulfilled" && sq.value) setLiveSquad(sq.value);
+        if (inj.status === "fulfilled" && inj.value) setLiveInjuries(inj.value);
+        // 둘 다 실패해도 에러로 취급하지 않음 — 정적 SQUADS 데이터로 폴백 표시
+      } catch (e) {
+        if (!cancelled) setApiError(true);
+      } finally {
+        if (!cancelled) setApiLoading(false);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [teamName]);
+
+  if (!squad) {
+    return (
+      <div onClick={onClose} style={overlayStyle}>
+        <div onClick={e=>e.stopPropagation()} style={modalStyle}>
+          <div style={{ padding:20, color:T.muted, textAlign:"center" }}>
+            "{teamName}" 팀 데이터를 찾을 수 없습니다.
+            <div style={{ marginTop:12 }}>
+              <button onClick={onClose} style={closeBtnStyle}>닫기</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  const TABS = [
+    { id:"squad", label:"스쿼드" },
+    { id:"formation", label:"포메이션" },
+    { id:"stats", label:"통계·xG" },
+    { id:"injuries", label:"부상" },
+  ];
+
+  return (
+    <div onClick={onClose} style={overlayStyle}>
+      <div onClick={e=>e.stopPropagation()} style={modalStyle}>
+        {/* 헤더 */}
+        <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", padding:"14px 16px", borderBottom:`1px solid ${T.border}` }}>
+          <div>
+            <div style={{ fontSize:18, fontWeight:800, color:T.text }}>{flag(teamName)} {teamName}</div>
+            <div style={{ fontSize:12, color:T.muted, marginTop:2 }}>
+              감독 {squad.coach} · {squad.formation} · 그룹 {squad.group}
+              {apiLoading && <span style={{ marginLeft:8, color:T.cyan }}>· 라이브 데이터 동기화중...</span>}
+              {!apiLoading && !liveSquad && <span style={{ marginLeft:8, color:T.dim }}>· 정적 데이터 표시중</span>}
+            </div>
+          </div>
+          <button onClick={onClose} style={closeBtnStyle}>✕</button>
+        </div>
+
+        {/* 탭 */}
+        <div style={{ display:"flex", gap:6, padding:"10px 16px", borderBottom:`1px solid ${T.border}`, overflowX:"auto" }}>
+          {TABS.map(t => (
+            <button key={t.id} onClick={()=>setTab(t.id)} style={{
+              background: tab===t.id ? T.accent : "transparent",
+              color: tab===t.id ? "#fff" : T.muted,
+              border:`1px solid ${tab===t.id ? T.accent : T.border}`,
+              borderRadius:8, padding:"6px 14px", fontSize:12, fontWeight:700, cursor:"pointer", whiteSpace:"nowrap"
+            }}>{t.label}</button>
+          ))}
+        </div>
+
+        {/* 본문 */}
+        <div style={{ padding:16, overflowY:"auto", flex:1 }}>
+          {apiError && (
+            <div style={{ background:"#3a1a1a", border:`1px solid ${T.red}`, borderRadius:8, padding:10, marginBottom:12, fontSize:12, color:T.red }}>
+              ⚠️ 라이브 데이터 연동 실패 — 정적 데이터(2026.06.01 기준)로 표시합니다.
+            </div>
+          )}
+
+          {tab === "squad" && (
+            <div style={{ display:"flex", flexDirection:"column", gap:14 }}>
+              {liveSquad ? (
+                <SquadPositionGroup title="라이브 스쿼드" players={liveSquad.map(p => p?.player?.name).filter(Boolean)} color={T.cyan}/>
+              ) : (
+                <>
+                  <SquadPositionGroup title="GK" players={squad.gk} color={T.gold}/>
+                  <SquadPositionGroup title="DF" players={squad.df} color={T.accent}/>
+                  <SquadPositionGroup title="MF" players={squad.mf} color={T.green}/>
+                  <SquadPositionGroup title="FW" players={squad.fw} color={T.red}/>
+                </>
+              )}
+              {squad.keyOut?.length > 0 && (
+                <div style={{ background:"#3a1a1a", border:`1px solid ${T.red}`, borderRadius:8, padding:10, fontSize:12 }}>
+                  <b style={{color:T.red}}>주요 결장:</b> {squad.keyOut.join(", ")}
+                </div>
+              )}
+            </div>
+          )}
+
+          {tab === "formation" && (
+            <div>
+              <div style={{ textAlign:"center", marginBottom:10, color:T.muted, fontSize:12 }}>
+                {squad.formation} 예상 선발 라인업
+              </div>
+              <div style={{
+                background:"linear-gradient(180deg,#0d3d1f,#0a2e17)", border:`1px solid ${T.border}`, borderRadius:12,
+                padding:"24px 12px", display:"grid", gridTemplateRows:"repeat(4,1fr)", gap:14, minHeight:320
+              }}>
+                {(() => {
+                  const xi = squad.xi || [];
+                  // 대략적 포지션 분배: GK 1 / DF 3~5 / MF 3~5 / FW 1~3 (formation 문자열 기반)
+                  const parts = (squad.formation||"4-3-3").split("-").map(n=>parseInt(n,10)||0);
+                  let idx = 0;
+                  const gkRow = xi.slice(idx, idx+1); idx += 1;
+                  const rows = [gkRow];
+                  for (const n of parts) {
+                    rows.push(xi.slice(idx, idx+n));
+                    idx += n;
+                  }
+                  return rows.map((row, ri) => (
+                    <div key={ri} style={{ display:"flex", justifyContent:"center", gap:10, flexWrap:"wrap" }}>
+                      {row.map((p,pi) => (
+                        <div key={pi} style={{ textAlign:"center" }}>
+                          <div style={{
+                            width:34, height:34, borderRadius:"50%", background:T.accent, color:"#fff",
+                            display:"flex", alignItems:"center", justifyContent:"center", fontSize:11, fontWeight:800, margin:"0 auto"
+                          }}>{ri===0?"GK":ri}</div>
+                          <div style={{ fontSize:10, color:T.text, marginTop:3, maxWidth:64, whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis" }}>{p}</div>
+                        </div>
+                      ))}
+                    </div>
+                  )).reverse();
+                })()}
+              </div>
+            </div>
+          )}
+
+          {tab === "stats" && elo && (
+            <div style={{ display:"flex", flexDirection:"column", gap:10 }}>
+              <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:8 }}>
+                <StatCard label="종합 ELO" value={Math.round(getDynElo(teamName,"base"))} max={1900}/>
+                <StatCard label="xG 기반 ELO" value={Math.round(getDynElo(teamName,"xgElo"))} max={1900}/>
+                <StatCard label="공격 ELO" value={Math.round(getDynElo(teamName,"atk"))} max={1900}/>
+                <StatCard label="수비 ELO" value={Math.round(getDynElo(teamName,"def"))} max={1900}/>
+                <StatCard label="폼 ELO" value={Math.round(getDynElo(teamName,"form"))} max={1900}/>
+                <StatCard label="시장가치 ELO" value={Math.round(getDynElo(teamName,"market"))} max={1900}/>
+              </div>
+              <div style={{ background:T.surface, borderRadius:10, padding:12 }}>
+                <div style={{ fontSize:12, color:T.muted, marginBottom:8 }}>경기당 xG / xGA</div>
+                <div style={{ display:"flex", justifyContent:"space-around", textAlign:"center" }}>
+                  <div><div style={{fontSize:20,fontWeight:800,color:T.green}}>{getDynElo(teamName,"xG").toFixed(2)}</div><div style={{fontSize:10,color:T.muted}}>xG</div></div>
+                  <div><div style={{fontSize:20,fontWeight:800,color:T.red}}>{getDynElo(teamName,"xGA").toFixed(2)}</div><div style={{fontSize:10,color:T.muted}}>xGA</div></div>
+                  <div><div style={{fontSize:20,fontWeight:800,color:T.text}}>{(elo.npXg??0).toFixed(2)}</div><div style={{fontSize:10,color:T.muted}}>npxG</div></div>
+                </div>
+              </div>
+              <div style={{ background:T.surface, borderRadius:10, padding:12, display:"flex", justifyContent:"space-around", textAlign:"center", fontSize:12 }}>
+                <div><div style={{fontWeight:800,color:T.text}}>{elo.ppda}</div><div style={{color:T.muted,fontSize:10}}>PPDA</div></div>
+                <div><div style={{fontWeight:800,color:T.text}}>{elo.fieldTilt}%</div><div style={{color:T.muted,fontSize:10}}>필드틸트</div></div>
+                <div><div style={{fontWeight:800,color:T.text}}>{elo.setPxg}</div><div style={{color:T.muted,fontSize:10}}>세트피스xG</div></div>
+              </div>
+              {spi && (
+                <div style={{ background:T.surface, borderRadius:10, padding:12, fontSize:12 }}>
+                  <b style={{color:T.cyan}}>FiveThirtyEight SPI:</b> {spi.spi} (off {spi.off} / def {spi.def})
+                </div>
+              )}
+              {opta && (
+                <div style={{ background:T.surface, borderRadius:10, padding:12, fontSize:12 }}>
+                  <b style={{color:T.gold}}>Opta 파워랭킹:</b> #{opta.rank} (PowerScore {opta.powerScore})
+                </div>
+              )}
+              <div>
+                <div style={{ fontSize:12, color:T.muted, marginBottom:6 }}>최근 폼</div>
+                <FormDots formArr={elo.formArr || []}/>
+              </div>
+            </div>
+          )}
+
+          {tab === "injuries" && (
+            <div>
+              {liveInjuries && liveInjuries.length > 0 ? (
+                <div style={{ display:"flex", flexDirection:"column", gap:8 }}>
+                  {liveInjuries.map((inj, i) => (
+                    <div key={i} style={{ background:T.surface, borderRadius:8, padding:10, fontSize:12 }}>
+                      <b>{inj?.player?.name ?? "선수명 미상"}</b> — {inj?.player?.reason ?? inj?.player?.type ?? "사유 미상"}
+                    </div>
+                  ))}
+                </div>
+              ) : squad.injured?.length > 0 ? (
+                <div style={{ display:"flex", flexDirection:"column", gap:8 }}>
+                  {squad.injured.map((inj, i) => (
+                    <div key={i} style={{ background:T.surface, borderRadius:8, padding:10, fontSize:12 }}>{inj}</div>
+                  ))}
+                </div>
+              ) : (
+                <div style={{ padding:20, textAlign:"center", color:T.muted, fontSize:12 }}>
+                  보고된 부상 선수가 없습니다.
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function SquadPositionGroup({ title, players, color }) {
+  if (!players?.length) return null;
+  return (
+    <div>
+      <div style={{ fontSize:12, fontWeight:700, color, marginBottom:6 }}>{title} ({players.length})</div>
+      <div style={{ display:"flex", flexWrap:"wrap", gap:6 }}>
+        {players.map((p,i) => (
+          <span key={i} style={{ background:T.surface, border:`1px solid ${T.border}`, borderRadius:6, padding:"4px 10px", fontSize:12, color:T.text }}>{p}</span>
+        ))}
+      </div>
+    </div>
+  );
+}
+function StatCard({ label, value, max }) {
+  return (
+    <div style={{ background:T.surface, borderRadius:10, padding:10 }}>
+      <div style={{ fontSize:11, color:T.muted, marginBottom:4 }}>{label}</div>
+      <div style={{ fontSize:18, fontWeight:800, color:T.text, marginBottom:6 }}>{value}</div>
+      <MiniBar value={value} max={max} color={T.accent}/>
+    </div>
+  );
+}
+
+const overlayStyle = {
+  position:"fixed", inset:0, background:"rgba(0,0,0,0.6)", display:"flex",
+  alignItems:"center", justifyContent:"center", zIndex:1000, padding:16,
+};
+const modalStyle = {
+  background:T.bg, border:`1px solid ${T.borderHi}`, borderRadius:14,
+  width:"100%", maxWidth:520, maxHeight:"85vh", display:"flex", flexDirection:"column", overflow:"hidden",
+};
+const closeBtnStyle = {
+  background:T.surface, border:`1px solid ${T.border}`, color:T.text, borderRadius:8,
+  width:32, height:32, cursor:"pointer", fontSize:14,
+};
+
+// ═══════════════════════════════════════════════════════════
+// 🏠 메인 App
+// ═══════════════════════════════════════════════════════════
+const ALL_TEAMS = Object.keys(SQUADS).sort((a,b)=>a.localeCompare(b,"ko"));
+const SIM_OPTIONS = [10000, 30000, 50000, 100000];
+// ═══════════════════════════════════════════════════════════
+// ⚙️ SettingsPanel — 프록시 / API 키 / 라이브 가중치 설정
+// ═══════════════════════════════════════════════════════════
+function SettingsPanel() {
+  const [cfg, setCfg] = useState({ ...RUNTIME_CONFIG });
+  const [status, setStatus] = useState(null); // null|saving|saved
+  const [testStatus, setTestStatus] = useState(null); // null|testing|ok|fail
+  const [diagSteps, setDiagSteps] = useState(null);
+  const [diagRunning, setDiagRunning] = useState(false);
+
+  useEffect(() => { loadRuntimeConfig().then(c => setCfg({ ...c })); }, []);
+
+  const update = (k, v) => setCfg(prev => ({ ...prev, [k]: v }));
+
+  const handleSave = async () => {
+    setStatus("saving");
+    await saveRuntimeConfig(cfg);
+    setStatus("saved");
+    setTimeout(() => setStatus(null), 2000);
+  };
+
+  // 연결 테스트: API-Football status 엔드포인트 호출
+  const handleTest = async () => {
+    setTestStatus("testing");
+    await saveRuntimeConfig(cfg); // 현재 입력값으로 먼저 적용
+    const data = await apiFootball("status", 6000);
+    setTestStatus(data?.response ? "ok" : "fail");
+  };
+
+  // ★ 상세 진단: 프록시별/키/fixture/예측/배당 단계별 점검
+  const handleDiagnose = async () => {
+    setDiagRunning(true);
+    setDiagSteps(null);
+    await saveRuntimeConfig(cfg);
+    const steps = await runDiagnostics();
+    setDiagSteps(steps);
+    setDiagRunning(false);
+  };
+
+  const field = (label, key, placeholder, type="text") => (
+    <div style={{ marginBottom:12 }}>
+      <div style={{ fontSize:12, color:T.muted, marginBottom:4 }}>{label}</div>
+      <input type={type} value={cfg[key] ?? ""} onChange={e=>update(key, e.target.value)}
+        placeholder={placeholder}
+        style={{ width:"100%", padding:"9px 11px", borderRadius:8, border:`1px solid ${T.border}`,
+          background:T.bg, color:T.text, fontSize:12, boxSizing:"border-box", fontFamily:"monospace" }}/>
+    </div>
+  );
+
+  return (
+    <div style={{ background:T.card, border:`1px solid ${T.border}`, borderRadius:14, padding:16 }}>
+      <div style={{ fontSize:14, fontWeight:800, color:T.text, marginBottom:4 }}>⚙️ 실시간 연동 설정</div>
+      <div style={{ fontSize:11, color:T.muted, marginBottom:14, lineHeight:1.5 }}>
+        브라우저는 외부 API 직접 호출을 CORS로 차단합니다. 아래 <b>CORS 프록시</b>를 거쳐야 실시간 데이터가 들어옵니다.
+        프록시를 비우면 정적 모델로만 동작합니다.
+      </div>
+
+      <div style={{ background:"#3a2a1a", border:`1px solid ${T.gold}`, borderRadius:8, padding:10, marginBottom:14, fontSize:11, color:T.gold, lineHeight:1.5 }}>
+        ⚠️ 이 화면의 키는 기기에 저장되며, 아티팩트 코드에도 남습니다. 유출이 우려되면 발급처에서 키를 교체하세요.
+      </div>
+
+      {field("CORS 프록시 URL", "corsProxy", "https://corsproxy.io/?url=")}
+      <div style={{ fontSize:10, color:T.dim, marginTop:-8, marginBottom:12 }}>
+        추천: https://corsproxy.io/?url= · https://api.allorigins.win/raw?url= (프록시는 불안정할 수 있음)
+      </div>
+
+      {field("API-Football 키", "footballApiKey", "afb988...")}
+      {field("API-Football 호스트", "footballApiHost", "v3.football.api-sports.io")}
+      {field("The Odds API 키 (선택)", "oddsApiKey", "실시간 배당용 — the-odds-api.com")}
+      {field("OpenWeatherMap 키 (선택)", "weatherApiKey", "날씨용")}
+
+      <div style={{ display:"flex", alignItems:"center", gap:10, margin:"14px 0", padding:"10px", background:T.surface, borderRadius:8 }}>
+        <input type="checkbox" checked={!!cfg.useLiveOdds} onChange={e=>update("useLiveOdds", e.target.checked)} id="useLive"/>
+        <label htmlFor="useLive" style={{ fontSize:12, color:T.text, flex:1 }}>실시간 배당/예측을 예측 스코어에 반영</label>
+      </div>
+
+      <div style={{ marginBottom:14 }}>
+        <div style={{ fontSize:12, color:T.muted, marginBottom:6 }}>
+          실시간 가중치: <b style={{color:T.cyan}}>{Math.round((cfg.liveOddsWeight ?? 0.35)*100)}%</b>
+          <span style={{ color:T.dim, fontSize:10 }}> (높을수록 시장/배당을 더 따름)</span>
+        </div>
+        <input type="range" min="0" max="0.8" step="0.05" value={cfg.liveOddsWeight ?? 0.35}
+          onChange={e=>update("liveOddsWeight", parseFloat(e.target.value))}
+          style={{ width:"100%" }}/>
+      </div>
+
+      <div style={{ display:"flex", gap:8 }}>
+        <button onClick={handleSave} disabled={status==="saving"}
+          style={{ flex:1, background:T.accent, color:"#fff", border:"none", borderRadius:8, padding:"10px", fontWeight:700, cursor:"pointer", fontSize:13 }}>
+          {status==="saving" ? "저장 중..." : status==="saved" ? "✓ 저장됨" : "설정 저장"}
+        </button>
+        <button onClick={handleTest} disabled={testStatus==="testing"}
+          style={{ flex:1, background:T.green, color:"#fff", border:"none", borderRadius:8, padding:"10px", fontWeight:700, cursor:"pointer", fontSize:13 }}>
+          {testStatus==="testing" ? "테스트 중..." : "연결 테스트"}
+        </button>
+      </div>
+
+      {testStatus==="ok" && <div style={{ marginTop:10, textAlign:"center", color:T.green, fontSize:12 }}>✅ API-Football 연결 성공 — 실시간 데이터 사용 가능</div>}
+      {testStatus==="fail" && <div style={{ marginTop:10, textAlign:"center", color:T.red, fontSize:12 }}>❌ 연결 실패 — 프록시 URL/키 확인. 프록시가 다운됐을 수 있으니 다른 프록시로 교체해보세요.</div>}
+
+      {/* ★ 상세 진단 */}
+      <button onClick={handleDiagnose} disabled={diagRunning}
+        style={{ width:"100%", marginTop:10, background:T.surface, border:`1px solid ${T.border}`, color:T.cyan,
+          borderRadius:8, padding:"10px", fontWeight:700, cursor:"pointer", fontSize:13 }}>
+        {diagRunning ? "진단 중... (10~20초 소요)" : "🔍 상세 진단 실행 (대한민국 vs 체코 기준)"}
+      </button>
+
+      {diagSteps && (
+        <div style={{ marginTop:10, display:"flex", flexDirection:"column", gap:6 }}>
+          {diagSteps.map((s, i) => (
+            <div key={i} style={{
+              background:T.surface, border:`1px solid ${s.ok===true?T.green:s.ok===false?T.red:T.border}`,
+              borderRadius:8, padding:"8px 10px", fontSize:11
+            }}>
+              <div style={{ fontWeight:700, color: s.ok===true?T.green:s.ok===false?T.red:T.muted }}>
+                {s.ok===true ? "✅" : s.ok===false ? "❌" : "⚪"} {s.step}
+              </div>
+              <div style={{ color:T.muted, marginTop:2, wordBreak:"break-all" }}>{s.detail}</div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      <div style={{ marginTop:16, paddingTop:14, borderTop:`1px solid ${T.border}`, fontSize:11, color:T.muted, lineHeight:1.6 }}>
+        <b style={{color:T.text}}>📌 이 키로 가져오는 실시간 데이터</b><br/>
+        · 종료/진행 경기 스코어 (적중 판정)<br/>
+        · API-Football 자체 승무패 예측 (교차검증)<br/>
+        · 라이브 스쿼드·부상자 (팀정보 탭)<br/>
+        · 시장 배당 (The Odds API 키 입력 시)<br/>
+        <span style={{ color:T.dim }}>Understat·Opta·FBref는 로그인 없이 공개 데이터를 참고 사이트에서 직접 확인하세요.</span>
+      </div>
+    </div>
+  );
+}
+
+const MAIN_TABS = [
+  { id:"predict",  label:"⚡ 예측" },
+  { id:"schedule", label:"📅 일정" },
+  { id:"history",  label:"📜 예측기록" },
+  { id:"teams",    label:"🪪 팀정보" },
+  { id:"settings", label:"⚙️ 설정" },
+];
+
+function App() {
+  const [tab, setTab] = useState("predict");
+  const [home, setHome] = useState("브라질");
+  const [away, setAway] = useState("프랑스");
+  const [sims, setSims] = useState(30000);
+  const [modalTeam, setModalTeam] = useState(null);
+  const [historyRefresh, setHistoryRefresh] = useState(0);
+  const [teamSearch, setTeamSearch] = useState("");
+  const [matchDate, setMatchDate] = useState(null); // 일정에서 선택한 경기 날짜 (API 결과 조회 정확도↑)
+  const [configReady, setConfigReady] = useState(false);
+
+  // 앱 시작 시 저장된 런타임 설정(프록시/키) 로드
+  useEffect(() => {
+    loadRuntimeConfig().finally(() => setConfigReady(true));
+  }, []);
+
+  const handleScheduleSelect = useCallback((m) => {
+    setHome(m.home); setAway(m.away); setMatchDate(m.date || null); setTab("predict");
+  }, []);
+  const handleSaved = useCallback(() => setHistoryRefresh(k => k+1), []);
+
+  const filteredTeams = useMemo(() => {
+    const q = teamSearch.trim();
+    if (!q) return ALL_TEAMS;
+    return ALL_TEAMS.filter(t => t.includes(q));
+  }, [teamSearch]);
+
+  const groupedSchedule = useMemo(() => {
+    const groups = {};
+    for (const m of SCHEDULE) {
+      if (!groups[m.date]) groups[m.date] = [];
+      groups[m.date].push(m);
+    }
+    return Object.entries(groups);
+  }, []);
+
+  return (
+    <div style={{ minHeight:"100vh", maxWidth:"100vw", overflowX:"hidden", boxSizing:"border-box", background:T.bg, color:T.text, fontFamily:"'Pretendard','Apple SD Gothic Neo',-apple-system,sans-serif", padding:"16px 12px 60px" }}>
+      <header style={{ position:"relative", textAlign:"center", marginBottom:16 }}>
+        <button onClick={()=>setTab("settings")} title="설정" style={{
+          position:"absolute", top:0, right:0, background: tab==="settings" ? T.accent : T.card,
+          border:`1px solid ${tab==="settings" ? T.accent : T.border}`, borderRadius:10,
+          width:38, height:38, fontSize:18, cursor:"pointer", color: tab==="settings" ? "#fff" : T.text,
+        }}>⚙️</button>
+        <div style={{ fontSize:22, fontWeight:900, background:`linear-gradient(135deg,${T.accent},${T.gold})`, WebkitBackgroundClip:"text", WebkitTextFillColor:"transparent", backgroundClip:"text" }}>
+          🏆 2026 월드컵 예측기
+        </div>
+        <div style={{ fontSize:11, color:T.muted, marginTop:4 }}>
+          Hybrid ELO 8단계 모델 + ML 랜덤포레스트 앙상블 + 몬테카를로 시뮬레이션
+        </div>
+      </header>
+
+      {/* 탭 네비게이션 (예측/일정/예측기록/팀정보 — 설정은 우측 상단 ⚙️ 버튼) */}
+      <nav style={{ display:"flex", gap:6, marginBottom:16, overflowX:"auto" }}>
+        {MAIN_TABS.filter(t=>t.id!=="settings").map(t => (
+          <button key={t.id} onClick={()=>setTab(t.id)} style={{
+            flex:1, minWidth:0, background: tab===t.id ? T.accent : T.card,
+            color: tab===t.id ? "#fff" : T.muted, border:`1px solid ${tab===t.id ? T.accent : T.border}`,
+            borderRadius:10, padding:"10px 4px", fontSize:11, fontWeight:700, cursor:"pointer", whiteSpace:"nowrap"
+          }}>{t.label}</button>
+        ))}
+      </nav>
+
+      {/* ── 예측 탭 ── */}
+      {tab === "predict" && (
+        <div>
+          <div style={{ background:T.card, border:`1px solid ${T.border}`, borderRadius:12, padding:12, marginBottom:12 }}>
+            <div style={{ display:"grid", gridTemplateColumns:"minmax(0,1fr) 36px minmax(0,1fr)", alignItems:"center", gap:8 }}>
+              <select value={home} onChange={e=>{ setHome(e.target.value); setMatchDate(null); }} style={selectStyle}>
+                {ALL_TEAMS.map(t => <option key={t} value={t}>{flag(t)} {t}</option>)}
+              </select>
+              <button onClick={()=>{ const h=home; setHome(away); setAway(h); }} style={swapBtnStyle} title="홈/원정 교체">⇄</button>
+              <select value={away} onChange={e=>{ setAway(e.target.value); setMatchDate(null); }} style={selectStyle}>
+                {ALL_TEAMS.map(t => <option key={t} value={t}>{flag(t)} {t}</option>)}
+              </select>
+            </div>
+            <div style={{ display:"flex", alignItems:"center", justifyContent:"center", gap:8, marginTop:10 }}>
+              <span style={{ fontSize:12, color:T.muted }}>몬테카를로 시뮬레이션:</span>
+              <select value={sims} onChange={e=>setSims(Number(e.target.value))} style={{ ...selectStyle, flex:"none", width:120 }}>
+                {SIM_OPTIONS.map(s => <option key={s} value={s}>{s.toLocaleString()}회</option>)}
+              </select>
+            </div>
+          </div>
+
+          <PredictPanel home={home} away={away} sims={sims} matchDate={matchDate} onSaved={handleSaved}/>
+
+          <div style={{ display:"flex", gap:8, marginTop:12, justifyContent:"center" }}>
+            <button onClick={()=>setModalTeam(home)} style={detailBtnStyle}>{flag(home)} {home} 상세정보</button>
+            <button onClick={()=>setModalTeam(away)} style={detailBtnStyle}>{flag(away)} {away} 상세정보</button>
+          </div>
+        </div>
+      )}
+
+      {/* ── 일정 탭 ── */}
+      {tab === "schedule" && (
+        <div style={{ display:"flex", flexDirection:"column", gap:14 }}>
+          {groupedSchedule.map(([date, matches]) => (
+            <div key={date}>
+              <div style={{ fontSize:12, fontWeight:700, color:T.cyan, marginBottom:6 }}>{date}</div>
+              <div style={{ display:"flex", flexDirection:"column", gap:6 }}>
+                {matches.map((m,i) => (
+                  <div key={i} onClick={()=>handleScheduleSelect(m)} style={{
+                    background:T.card, border:`1px solid ${T.border}`, borderRadius:10, padding:"10px 12px",
+                    display:"flex", alignItems:"center", justifyContent:"space-between", cursor:"pointer", fontSize:13
+                  }}>
+                    <span style={{ color:T.muted, fontSize:11, minWidth:50 }}>{m.time}</span>
+                    <span style={{ flex:1, textAlign:"center" }}>
+                      {flag(m.home)} {m.home} <span style={{color:T.muted}}>vs</span> {m.away} {flag(m.away)}
+                    </span>
+                    <span style={{ color:T.dim, fontSize:11 }}>예측 →</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* ── 예측기록 탭 ── */}
+      {tab === "history" && <PredictionHistory refreshKey={historyRefresh}/>}
+
+      {/* ── 팀정보 탭 ── */}
+      {tab === "teams" && (
+        <div>
+          <input value={teamSearch} onChange={e=>setTeamSearch(e.target.value)} placeholder="팀 이름 검색..."
+            style={{ width:"100%", padding:"10px 12px", borderRadius:10, border:`1px solid ${T.border}`, background:T.card, color:T.text, marginBottom:12, boxSizing:"border-box" }}/>
+          <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fill,minmax(140px,1fr))", gap:8 }}>
+            {filteredTeams.map(t => (
+              <div key={t} onClick={()=>setModalTeam(t)} style={{
+                background:T.card, border:`1px solid ${T.border}`, borderRadius:10, padding:"10px 8px",
+                textAlign:"center", cursor:"pointer", fontSize:12
+              }}>
+                <div style={{ fontSize:20 }}>{flag(t)}</div>
+                <div style={{ marginTop:4, fontWeight:700 }}>{t}</div>
+                <div style={{ marginTop:2, color:T.muted, fontSize:10 }}>ELO {Math.round(getDynElo(t,"base"))}</div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* ── 설정 탭 ── */}
+      {tab === "settings" && <SettingsPanel />}
+
+      {/* ── 참고 사이트 ── */}
+      <footer style={{ marginTop:24, paddingTop:16, borderTop:`1px solid ${T.border}` }}>
+        <div style={{ fontSize:12, color:T.muted, marginBottom:8, textAlign:"center" }}>📚 참고 데이터 소스</div>
+        <div style={{ display:"flex", gap:8, flexWrap:"wrap", justifyContent:"center" }}>
+          {REFERENCE_SITES.map((s,i) => (
+            <a key={i} href={s.url} target="_blank" rel="noopener noreferrer" style={{
+              background:T.card, border:`1px solid ${T.border}`, borderRadius:8, padding:"6px 10px",
+              fontSize:11, color:T.muted, textDecoration:"none", display:"flex", alignItems:"center", gap:4
+            }}>
+              <span>{s.icon}</span><span>{s.name}</span>
+            </a>
+          ))}
+        </div>
+      </footer>
+
+      {modalTeam && <TeamModal teamName={modalTeam} onClose={()=>setModalTeam(null)}/>}
+    </div>
+  );
+}
+
+const selectStyle = {
+  width:"100%", minWidth:0, padding:"10px 6px", borderRadius:8, border:`1px solid ${T.border}`,
+  background:T.surface, color:T.text, fontSize:13, fontWeight:600, boxSizing:"border-box",
+};
+const swapBtnStyle = {
+  background:T.surface, border:`1px solid ${T.border}`, color:T.cyan, borderRadius:8,
+  width:36, height:36, cursor:"pointer", fontSize:16, flexShrink:0,
+};
+const detailBtnStyle = {
+  background:T.card, border:`1px solid ${T.border}`, color:T.text, borderRadius:8,
+  padding:"8px 14px", fontSize:12, cursor:"pointer", fontWeight:600,
+};
+
+
+const _root = ReactDOM.createRoot(document.getElementById("root"));
+_root.render(React.createElement(App));
+</script>
+</body>
+</html>
