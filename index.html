@@ -1663,14 +1663,22 @@ async function runDiagnostics(sampleHome = "대한민국", sampleAway = "체코"
   };
   const statusUrl = `https://${RUNTIME_CONFIG.footballApiHost}/status`;
 
-  // 1) 프록시별 개별 테스트
-  const proxyList = [
+  // 1) 프록시별 개별 테스트 (설정값과 중복되는 항목은 스킵해 쿼터 절약)
+  const proxyListRaw = [
     { name: "설정값", url: RUNTIME_CONFIG.corsProxy },
     { name: "corsproxy.io", url: "https://corsproxy.io/?url=" },
     { name: "allorigins", url: "https://api.allorigins.win/raw?url=" },
     { name: "thingproxy", url: "https://thingproxy.freeboard.io/fetch/" },
     { name: "codetabs", url: "https://api.codetabs.com/v1/proxy?quest=" },
   ];
+  const seenUrls = new Set();
+  const proxyList = proxyListRaw.filter(px => {
+    if (!px.url) return true; // "URL 비어있음" 메시지 표시용으로 유지
+    if (seenUrls.has(px.url)) return false; // ★ 설정값과 동일한 프록시 중복 스킵 (쿼터 절약)
+    seenUrls.add(px.url);
+    return true;
+  });
+  const sleep = ms => new Promise(r => setTimeout(r, ms));
   let workingProxy = null;
   for (const px of proxyList) {
     if (!px.url) { steps.push({ step: `프록시: ${px.name}`, ok: false, detail: "URL 비어있음" }); continue; }
@@ -1687,12 +1695,15 @@ async function runDiagnostics(sampleHome = "대한민국", sampleAway = "체코"
     } catch (e) {
       steps.push({ step: `프록시: ${px.name}`, ok: false, detail: `오류: ${e?.message || e}` });
     }
+    if (workingProxy) break; // ★ 작동하는 프록시 1개 찾으면 나머지 테스트 생략 (쿼터 절약)
   }
 
   if (!workingProxy) {
     steps.push({ step: "API-Football 연결", ok: false, detail: "작동하는 프록시가 없어 이후 단계 진행 불가" });
     return steps;
   }
+
+  await sleep(2500); // ★ 분당 요청제한 회피용 대기
 
   // 2) API 키 / 쿼터 확인 (status 응답에서 subscription·requests 정보 파싱)
   try {
@@ -1703,12 +1714,16 @@ async function runDiagnostics(sampleHome = "대한민국", sampleAway = "체코"
     const sub = j?.response?.subscription;
     if (acct) {
       steps.push({ step: "API 키 / 계정", ok: true, detail: `${acct.firstname||""} ${acct.lastname||""} · 플랜: ${sub?.plan||"-"} · 오늘 요청 ${reqs?.current ?? "?"}/${reqs?.limit_day ?? "?"}` });
+    } else if (j?.errors?.rateLimit) {
+      steps.push({ step: "API 키 / 계정", ok: null, detail: `분당 요청제한 도달 (무료플랜 보통 10회/분) — 1분 후 다시 시도하세요` });
     } else {
       steps.push({ step: "API 키 / 계정", ok: false, detail: `응답: ${JSON.stringify(j).slice(0,150)}` });
     }
   } catch (e) {
     steps.push({ step: "API 키 / 계정", ok: false, detail: `오류: ${e?.message || e}` });
   }
+
+  await sleep(2500);
 
   // 3) 샘플 매치 fixture 조회 (h2h)
   const homeId = TEAM_API_IDS[sampleHome], awayId = TEAM_API_IDS[sampleAway];
@@ -1723,6 +1738,8 @@ async function runDiagnostics(sampleHome = "대한민국", sampleAway = "체코"
         const f = arr[0];
         steps.push({ step: "fixture 조회 (h2h)", ok: true, detail: `${arr.length}건 발견 · 최근: ${f?.fixture?.date?.slice(0,10)} (id ${f?.fixture?.id})` });
 
+        await sleep(2500);
+
         // 4) predictions 조회
         try {
           const predUrl = `https://${RUNTIME_CONFIG.footballApiHost}/predictions?fixture=${f.fixture.id}`;
@@ -1731,12 +1748,18 @@ async function runDiagnostics(sampleHome = "대한민국", sampleAway = "체코"
           const pred = j2?.response?.[0]?.predictions;
           if (pred) {
             steps.push({ step: "predictions 조회", ok: true, detail: `승무패: ${JSON.stringify(pred.percent)}` });
+          } else if (j2?.errors?.rateLimit) {
+            steps.push({ step: "predictions 조회", ok: null, detail: "분당 요청제한 도달 — 1분 후 다시 시도" });
           } else {
             steps.push({ step: "predictions 조회", ok: false, detail: `응답: ${JSON.stringify(j2).slice(0,150)}` });
           }
         } catch (e) {
           steps.push({ step: "predictions 조회", ok: false, detail: `오류: ${e?.message || e}` });
         }
+      } else if (j?.errors?.rateLimit) {
+        steps.push({ step: "fixture 조회 (h2h)", ok: null, detail: "분당 요청제한 도달 — 1분 후 다시 시도" });
+      } else if (j?.errors?.token) {
+        steps.push({ step: "fixture 조회 (h2h)", ok: false, detail: `토큰 오류: ${j.errors.token}` });
       } else {
         steps.push({ step: "fixture 조회 (h2h)", ok: false, detail: `응답: ${JSON.stringify(j).slice(0,150)}` });
       }
