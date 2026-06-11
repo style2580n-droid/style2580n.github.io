@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8"/>
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1"/>
-<title>2026 월드컵 예측기</title>
+<title>FIFA 2026 월드컵 예측기</title>
 <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
 <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
 <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
@@ -929,20 +929,6 @@ const ELO = {
 
 // ─── SCHEDULE ────────────────────────────────────────────────
 const SCHEDULE = [
-  {date:"2026-06-09",time:"20:35",home:"중국",away:"태국"},
-  {date:"2026-06-09",time:"22:00",home:"인도네시아",away:"모잠비크"},
-  {date:"2026-06-10",time:"00:00",home:"타지키스탄",away:"인도"},
-  {date:"2026-06-10",time:"00:00",home:"아르메니아",away:"몰도바"},
-  {date:"2026-06-10",time:"01:30",home:"벨라루스",away:"부르키나파소"},
-  {date:"2026-06-10",time:"02:00",home:"러시아",away:"트리니다드토바고"},
-  {date:"2026-06-10",time:"02:00",home:"헝가리",away:"카자흐스탄"},
-  {date:"2026-06-10",time:"03:00",home:"아제르바이잔",away:"산마리노"},
-  {date:"2026-06-10",time:"08:00",home:"사우디아라비아",away:"세네갈"},
-  {date:"2026-06-10",time:"10:00",home:"이라크",away:"베네수엘라"},
-  {date:"2026-06-10",time:"10:00",home:"아르헨티나",away:"아이슬란드"},
-  {date:"2026-06-10",time:"미정",home:"볼리비아",away:"알제리"},
-  {date:"2026-06-11",time:"04:45",home:"포르투갈",away:"나이지리아"},
-  {date:"2026-06-11",time:"05:00",home:"잉글랜드",away:"코스타리카"},
   {date:"2026-06-12",time:"04:00",home:"멕시코",away:"남아프리카공화국"},
   {date:"2026-06-12",time:"11:00",home:"대한민국",away:"체코"},
   {date:"2026-06-13",time:"04:00",home:"캐나다",away:"보스니아"},
@@ -1413,6 +1399,8 @@ function predictMatch(homeName, awayName, sims = 30000, liveOverride = {}) {
     .sort((a,b)=>b[1]-a[1]).slice(0,5)
     .map(([score,count])=>({ score, prob: count/safeSims }));
 
+  const overUnder = computeOverUnder(scoreCounts, safeSims);
+
   return {
     home: homeName, away: awayName,
     homeWinProb: finalHome, drawProb: finalDraw, awayWinProb: finalAway,
@@ -1421,10 +1409,26 @@ function predictMatch(homeName, awayName, sims = 30000, liveOverride = {}) {
     lambdaHome, lambdaAway,
     homeElo, awayElo, eloDiff,
     topScores,
+    overUnder,                 // ★ {2.5:{over,under}, 3.5:{over,under}} — 합산 골 수 기준
     sims: safeSims,           // ★ UI 표시용 실제 시뮬레이션 횟수
     mlProbs, features,
     timestamp: Date.now(),
   };
+}
+
+// ★ scoreCounts({"2-1":count,...})로부터 오버/언더 2.5·3.5 확률 계산
+function computeOverUnder(scoreCounts, totalSims) {
+  const lines = [2.5, 3.5];
+  const result = {};
+  for (const line of lines) {
+    let over = 0;
+    for (const [score, count] of Object.entries(scoreCounts)) {
+      const [h, a] = score.split("-").map(Number);
+      if ((h + a) > line) over += count;
+    }
+    result[line] = { over: over / totalSims, under: 1 - over / totalSims };
+  }
+  return result;
 }
 
 // ═══════════════════════════════════════════════════════════
@@ -1499,13 +1503,15 @@ async function predictMatchLive(homeName, awayName, sims = 30000, dateISO = null
   }
   const topScores = Object.entries(scoreCounts).sort((x,y)=>y[1]-x[1]).slice(0,5)
     .map(([score,count])=>({ score, prob: count/reSims }));
+  const overUnder = computeOverUnder(scoreCounts, reSims);
 
   return {
     ...base,
     homeWinProb: h, drawProb: d, awayWinProb: a,
-    lambdaHome, lambdaAway, topScores,
+    lambdaHome, lambdaAway, topScores, overUnder,
+    staticOverUnder: base.overUnder,
     staticProbs: { home: base.homeWinProb, draw: base.drawProb, away: base.awayWinProb },
-    marketProbs, apiPrediction: apiPred || null,
+    marketProbs, marketTotals: oddsRaw?.totals || null, apiPrediction: apiPred || null,
     consensus,
     liveApplied: true,
     liveWeight: w,
@@ -1565,7 +1571,7 @@ async function crossValidate(homeName, awayName, ourProbs, dateISO = null) {
     marketP = devigOdds(odds); // 마진 제거된 정규화 확률
     if (apiPred && apiPred.home != null) {
       const s = (apiPred.home||0)+(apiPred.draw||0)+(apiPred.away||0);
-      if (s > 0) apiP = { home: apiPred.home/s, draw: (apiPred.draw||0)/s, away: apiPred.away/s, advice: apiPred.advice };
+      if (s > 0) apiP = { home: apiPred.home/s, draw: (apiPred.draw||0)/s, away: apiPred.away/s, advice: apiPred.advice, underOver: apiPred.underOver, goalsAvg: apiPred.goalsAvg };
     }
 
     const consensusHome = calculateConsensus([
@@ -1599,7 +1605,7 @@ const RUNTIME_CONFIG = {
   corsProxy: "https://corsproxy.io/?url=",
   footballApiKey: "afb988f21e224372190ac852df6d2430c86be07b7a3bd8088f2a42950b648db0",
   footballApiHost: "v3.football.api-sports.io",
-  oddsApiKey: "",          // The Odds API 키 (the-odds-api.com) — 있으면 시장배당 실시간 반영
+  oddsApiKey: "8249b523a115025e376a2f70174a7043", // The Odds API 키 (the-odds-api.com) — 있으면 시장배당 실시간 반영
   weatherApiKey: "",       // OpenWeatherMap 키 (선택)
   useLiveOdds: true,       // 실시간 배당/예측을 모델에 반영할지
   liveOddsWeight: 0.35,    // 예측 블렌딩 시 외부 시장/예측 가중치 (0~1)
@@ -1624,6 +1630,141 @@ function withProxy(url) {
   const p = RUNTIME_CONFIG.corsProxy;
   return p ? p + encodeURIComponent(url) : url;
 }
+// ★ 다중 프록시 폴백 목록 — 첫 번째(설정값) 실패 시 순차로 다음 프록시 시도
+const PROXY_FALLBACKS = [
+  null, // null = RUNTIME_CONFIG.corsProxy(설정값) 그대로 사용
+  "https://corsproxy.io/?url=",
+  "https://api.allorigins.win/raw?url=",
+  "https://thingproxy.freeboard.io/fetch/",
+  "https://api.codetabs.com/v1/proxy?quest=",
+];
+// 여러 프록시를 순차 시도해 첫 성공 응답을 반환. 전부 실패시 null.
+async function fetchViaProxies(url, options = {}, timeoutMs = 4000) {
+  const tried = new Set();
+  for (const proxy of PROXY_FALLBACKS) {
+    const p = proxy === null ? RUNTIME_CONFIG.corsProxy : proxy;
+    if (!p || tried.has(p)) continue;
+    tried.add(p);
+    try {
+      const res = await fetchWithTimeout(p + encodeURIComponent(url), options, timeoutMs);
+      if (res.ok) return res;
+    } catch (e) { /* 다음 프록시로 */ }
+  }
+  return null;
+}
+
+// ★ 상세 진단 — 어느 단계에서 막히는지 한눈에 확인 (프록시별 / API키 / fixture / odds)
+async function runDiagnostics(sampleHome = "대한민국", sampleAway = "체코") {
+  const steps = [];
+  const headers = {
+    "x-apisports-key": RUNTIME_CONFIG.footballApiKey,
+    "x-rapidapi-key": RUNTIME_CONFIG.footballApiKey,
+    "x-rapidapi-host": RUNTIME_CONFIG.footballApiHost,
+  };
+  const statusUrl = `https://${RUNTIME_CONFIG.footballApiHost}/status`;
+
+  // 1) 프록시별 개별 테스트
+  const proxyList = [
+    { name: "설정값", url: RUNTIME_CONFIG.corsProxy },
+    { name: "corsproxy.io", url: "https://corsproxy.io/?url=" },
+    { name: "allorigins", url: "https://api.allorigins.win/raw?url=" },
+    { name: "thingproxy", url: "https://thingproxy.freeboard.io/fetch/" },
+    { name: "codetabs", url: "https://api.codetabs.com/v1/proxy?quest=" },
+  ];
+  let workingProxy = null;
+  for (const px of proxyList) {
+    if (!px.url) { steps.push({ step: `프록시: ${px.name}`, ok: false, detail: "URL 비어있음" }); continue; }
+    try {
+      const res = await fetchWithTimeout(px.url + encodeURIComponent(statusUrl), { headers }, 5000);
+      if (res.ok) {
+        const j = await res.json().catch(()=>null);
+        const ok = !!j?.response;
+        steps.push({ step: `프록시: ${px.name}`, ok, detail: ok ? "응답 OK" : `HTTP ${res.status}, JSON: ${JSON.stringify(j).slice(0,120)}` });
+        if (ok && !workingProxy) workingProxy = px.url;
+      } else {
+        steps.push({ step: `프록시: ${px.name}`, ok: false, detail: `HTTP ${res.status}` });
+      }
+    } catch (e) {
+      steps.push({ step: `프록시: ${px.name}`, ok: false, detail: `오류: ${e?.message || e}` });
+    }
+  }
+
+  if (!workingProxy) {
+    steps.push({ step: "API-Football 연결", ok: false, detail: "작동하는 프록시가 없어 이후 단계 진행 불가" });
+    return steps;
+  }
+
+  // 2) API 키 / 쿼터 확인 (status 응답에서 subscription·requests 정보 파싱)
+  try {
+    const res = await fetchWithTimeout(workingProxy + encodeURIComponent(statusUrl), { headers }, 6000);
+    const j = await res.json().catch(()=>null);
+    const acct = j?.response?.account;
+    const reqs = j?.response?.requests;
+    const sub = j?.response?.subscription;
+    if (acct) {
+      steps.push({ step: "API 키 / 계정", ok: true, detail: `${acct.firstname||""} ${acct.lastname||""} · 플랜: ${sub?.plan||"-"} · 오늘 요청 ${reqs?.current ?? "?"}/${reqs?.limit_day ?? "?"}` });
+    } else {
+      steps.push({ step: "API 키 / 계정", ok: false, detail: `응답: ${JSON.stringify(j).slice(0,150)}` });
+    }
+  } catch (e) {
+    steps.push({ step: "API 키 / 계정", ok: false, detail: `오류: ${e?.message || e}` });
+  }
+
+  // 3) 샘플 매치 fixture 조회 (h2h)
+  const homeId = TEAM_API_IDS[sampleHome], awayId = TEAM_API_IDS[sampleAway];
+  steps.push({ step: `팀 ID 매핑 (${sampleHome}/${sampleAway})`, ok: !!(homeId && awayId), detail: `${sampleHome}=${homeId ?? "없음"}, ${sampleAway}=${awayId ?? "없음"}` });
+  if (homeId && awayId) {
+    try {
+      const h2hUrl = `https://${RUNTIME_CONFIG.footballApiHost}/fixtures/headtohead?h2h=${homeId}-${awayId}&last=5`;
+      const res = await fetchWithTimeout(workingProxy + encodeURIComponent(h2hUrl), { headers }, 6000);
+      const j = await res.json().catch(()=>null);
+      const arr = j?.response;
+      if (Array.isArray(arr) && arr.length) {
+        const f = arr[0];
+        steps.push({ step: "fixture 조회 (h2h)", ok: true, detail: `${arr.length}건 발견 · 최근: ${f?.fixture?.date?.slice(0,10)} (id ${f?.fixture?.id})` });
+
+        // 4) predictions 조회
+        try {
+          const predUrl = `https://${RUNTIME_CONFIG.footballApiHost}/predictions?fixture=${f.fixture.id}`;
+          const r2 = await fetchWithTimeout(workingProxy + encodeURIComponent(predUrl), { headers }, 6000);
+          const j2 = await r2.json().catch(()=>null);
+          const pred = j2?.response?.[0]?.predictions;
+          if (pred) {
+            steps.push({ step: "predictions 조회", ok: true, detail: `승무패: ${JSON.stringify(pred.percent)}` });
+          } else {
+            steps.push({ step: "predictions 조회", ok: false, detail: `응답: ${JSON.stringify(j2).slice(0,150)}` });
+          }
+        } catch (e) {
+          steps.push({ step: "predictions 조회", ok: false, detail: `오류: ${e?.message || e}` });
+        }
+      } else {
+        steps.push({ step: "fixture 조회 (h2h)", ok: false, detail: `응답: ${JSON.stringify(j).slice(0,150)}` });
+      }
+    } catch (e) {
+      steps.push({ step: "fixture 조회 (h2h)", ok: false, detail: `오류: ${e?.message || e}` });
+    }
+  }
+
+  // 5) The Odds API (선택 키)
+  if (RUNTIME_CONFIG.oddsApiKey) {
+    try {
+      const oddsUrl = `https://api.the-odds-api.com/v4/sports/soccer_fifa_world_cup/odds?apiKey=${RUNTIME_CONFIG.oddsApiKey}&regions=eu&markets=h2h,totals&oddsFormat=decimal`;
+      const res = await fetchWithTimeout(workingProxy + encodeURIComponent(oddsUrl), {}, 6000);
+      const j = await res.json().catch(()=>null);
+      if (Array.isArray(j)) {
+        steps.push({ step: "The Odds API", ok: true, detail: `${j.length}개 경기 배당 수신` });
+      } else {
+        steps.push({ step: "The Odds API", ok: false, detail: `응답: ${JSON.stringify(j).slice(0,150)}` });
+      }
+    } catch (e) {
+      steps.push({ step: "The Odds API", ok: false, detail: `오류: ${e?.message || e}` });
+    }
+  } else {
+    steps.push({ step: "The Odds API", ok: null, detail: "키 미입력 — the-odds-api.com에서 무료 키 발급 필요" });
+  }
+
+  return steps;
+}
 const FOOTBALL_API_HOST = RUNTIME_CONFIG.footballApiHost; // 하위호환 별칭
 
 // API-Football 팀 ID 매핑 (오리지널 53개팀만 보유, 신규 16개팀은 미보유 → null 반환 후 정적 데이터로 폴백)
@@ -1633,7 +1774,7 @@ const TEAM_API_IDS = {
   "모로코":31, "세네갈":13, "미국":24, "캐나다":1118, "멕시코":16, "콜롬비아":7,
   "우루과이":8, "알제리":29, "오스트리아":34, "요르단":1119, "이란":21, "이집트":30,
   "뉴질랜드":1120, "노르웨이":1121, "이라크":1122, "보스니아":1123, "스위스":15, "카타르":1124,
-  "체코":1125, "남아프리카공화국":1126, "카보베르데":1127, "사우디아라비아":1128, "호주":14,
+  "체코":770, "남아프리카공화국":1126, "카보베르데":1127, "사우디아라비아":1128, "호주":14,
   "튀르키예":1129, "파라과이":1130, "가나":1131, "파나마":1132, "에콰도르":1133,
   "코트디부아르":1134, "퀴라소":1135, "스웨덴":1136, "튀니지":28, "콩고민주공화국":1137,
   "우즈베키스탄":1138, "스코틀랜드":1139, "아이티":1140, "아이슬란드":1141, "나이지리아":1142,
@@ -1660,14 +1801,14 @@ async function apiFootball(path, timeoutMs = 4000) {
   if (!RUNTIME_CONFIG.footballApiKey) return null; // 키 없으면 시도 안 함
   try {
     const url = `https://${RUNTIME_CONFIG.footballApiHost}/${path}`;
-    const res = await fetchWithTimeout(withProxy(url), {
+    const res = await fetchViaProxies(url, {
       headers: {
         "x-apisports-key": RUNTIME_CONFIG.footballApiKey,
         "x-rapidapi-key": RUNTIME_CONFIG.footballApiKey,
         "x-rapidapi-host": RUNTIME_CONFIG.footballApiHost,
       },
     }, timeoutMs);
-    if (!res.ok) return null;
+    if (!res || !res.ok) return null;
     const data = await res.json();
     return data ?? null;
   } catch (e) {
@@ -1705,7 +1846,10 @@ async function fetchApiFootballPrediction(homeName, awayName, dateISO) {
   const toNum = s => (typeof s === "string" && s.endsWith("%")) ? parseFloat(s)/100 : null;
   const home = toNum(pc.home), draw = toNum(pc.draw), away = toNum(pc.away);
   if (home == null && draw == null && away == null) return null;
-  return { home, draw, away, advice: p.predictions.advice || null, fixtureId: fid };
+  // ★ API-Football 자체 오버/언더 라인 예측 (예: "2.5", "+2.5" 등 표기) + 예상 골 평균
+  const underOver = p.predictions.under_over || null;
+  const goalsAvg = p.predictions.goals || null; // {home, away} 예상 평균골
+  return { home, draw, away, advice: p.predictions.advice || null, underOver, goalsAvg, fixtureId: fid };
 }
 
 // 두 팀 간 fixture ID 탐색 (h2h). 날짜 우선 매칭.
@@ -1730,9 +1874,9 @@ async function findFixtureId(homeName, awayName, dateISO) {
 async function fetchMatchOdds(homeName, awayName) {
   if (!RUNTIME_CONFIG.oddsApiKey) return null;
   try {
-    const url = `https://api.the-odds-api.com/v4/sports/soccer_fifa_world_cup/odds?apiKey=${RUNTIME_CONFIG.oddsApiKey}&regions=eu&markets=h2h&oddsFormat=decimal`;
-    const res = await fetchWithTimeout(withProxy(url), {}, 4000);
-    if (!res.ok) return null;
+    const url = `https://api.the-odds-api.com/v4/sports/soccer_fifa_world_cup/odds?apiKey=${RUNTIME_CONFIG.oddsApiKey}&regions=eu&markets=h2h,totals&oddsFormat=decimal`;
+    const res = await fetchViaProxies(url, {}, 4500);
+    if (!res || !res.ok) return null;
     const data = await res.json();
     if (!Array.isArray(data)) return null;
     const match = data.find(m =>
@@ -1740,12 +1884,30 @@ async function fetchMatchOdds(homeName, awayName) {
       (m.away_team?.includes(awayName) || awayName.includes(m.away_team || ""))
     );
     if (!match?.bookmakers?.length) return null;
-    const market = match.bookmakers[0]?.markets?.find(mk => mk.key === "h2h");
-    if (!market) return null;
-    const ho = market.outcomes.find(o => o.name === match.home_team);
-    const ao = market.outcomes.find(o => o.name === match.away_team);
-    const do_ = market.outcomes.find(o => o.name === "Draw");
-    return { home: ho?.price ?? null, away: ao?.price ?? null, draw: do_?.price ?? null };
+    const bk = match.bookmakers[0];
+    const market = bk?.markets?.find(mk => mk.key === "h2h");
+    let result = { home: null, away: null, draw: null, totals: null };
+    if (market) {
+      const ho = market.outcomes.find(o => o.name === match.home_team);
+      const ao = market.outcomes.find(o => o.name === match.away_team);
+      const do_ = market.outcomes.find(o => o.name === "Draw");
+      result = { home: ho?.price ?? null, away: ao?.price ?? null, draw: do_?.price ?? null, totals: null };
+    }
+    // 토탈(오버/언더) 마켓 — 라인별 over/under 배당
+    const totalsMkt = bk?.markets?.find(mk => mk.key === "totals");
+    if (totalsMkt) {
+      const lines = {};
+      for (const o of totalsMkt.outcomes || []) {
+        const pt = o.point;
+        if (pt == null) continue;
+        if (!lines[pt]) lines[pt] = {};
+        if (o.name === "Over") lines[pt].over = o.price;
+        if (o.name === "Under") lines[pt].under = o.price;
+      }
+      result.totals = lines; // 예: {2.5:{over:1.8,under:2.0}, 3.5:{...}}
+    }
+    if (result.home == null && result.away == null && !result.totals) return null;
+    return result;
   } catch (e) {
     return null;
   }
@@ -1882,6 +2044,24 @@ function actualOutcome(homeGoals, awayGoals) {
   return "draw";
 }
 const OUTCOME_LABEL = { home:"홈승", draw:"무승부", away:"원정승" };
+// 오버/언더 판정 라벨
+const OU_LABEL = { over:"오버", under:"언더" };
+// 예측 시점의 오버/언더 2.5·3.5 "예측 방향"(확률 높은 쪽) 산출
+function predictedOU(overUnder) {
+  if (!overUnder) return null;
+  const out = {};
+  for (const line of [2.5, 3.5]) {
+    const m = overUnder[line];
+    if (!m) continue;
+    out[line] = m.over >= m.under ? "over" : "under";
+  }
+  return out; // 예: {2.5:"over", 3.5:"under"}
+}
+// 실제 합산골 → 라인별 오버/언더 실제 결과
+function actualOU(homeGoals, awayGoals) {
+  const total = homeGoals + awayGoals;
+  return { 2.5: total > 2.5 ? "over" : "under", 3.5: total > 3.5 ? "over" : "under" };
+}
 
 async function savePredictionRecord(record) {
   try {
@@ -1924,11 +2104,24 @@ async function deletePredictionRecord(id) {
 function applyResultToRecord(record, homeGoals, awayGoals, source = "manual") {
   const actual = actualOutcome(homeGoals, awayGoals);
   const isHit = record.predictedOutcome === actual;
+
+  // ★ 오버/언더 적중 판정 (구버전 레코드는 predictedOU가 없을 수 있어 옵셔널 처리)
+  const ouActual = actualOU(homeGoals, awayGoals);
+  let ouHits = null;
+  if (record.predictedOU) {
+    ouHits = {};
+    for (const line of [2.5, 3.5]) {
+      if (record.predictedOU[line]) ouHits[line] = record.predictedOU[line] === ouActual[line];
+    }
+  }
+
   return {
     ...record,
     actualScore: { home: homeGoals, away: awayGoals },
     actualOutcome: actual,
     isHit,
+    actualOU: ouActual,
+    ouHits, // 예: {2.5:true, 3.5:false} — record.predictedOU 없으면 null
     resultStatus: "final",
     resultSource: source,          // "api" | "manual"
     resolvedAt: Date.now(),
@@ -1983,7 +2176,7 @@ function CrossValidationPanel({ crossVal, loading, home, away }) {
   return (
     <div style={{ background:T.surface, border:`1px solid ${T.border}`, borderRadius:10, padding:12, marginTop:10 }}>
       <div style={{ fontSize:12, fontWeight:700, color:T.cyan, marginBottom:8 }}>🔬 교차검증 (Opta / 시장배당 / API예측 / SPI)</div>
-      <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:8, fontSize:11, color:T.text }}>
+      <div style={{ display:"grid", gridTemplateColumns:"minmax(0,1fr) minmax(0,1fr)", overflowWrap:"break-word", gap:8, fontSize:11, color:T.text }}>
         <div>
           <div style={{ color:T.muted, marginBottom:2 }}>Opta 파워랭킹</div>
           {crossVal.opta
@@ -2001,6 +2194,8 @@ function CrossValidationPanel({ crossVal, loading, home, away }) {
           {crossVal.apiFootball
             ? <div>{home} {pct(crossVal.apiFootball.home)} · 무 {pct(crossVal.apiFootball.draw)} · {away} {pct(crossVal.apiFootball.away)}
                 {crossVal.apiFootball.advice && <div style={{color:T.dim, fontSize:10, marginTop:1}}>💡 {crossVal.apiFootball.advice}</div>}
+                {crossVal.apiFootball.underOver && <div style={{color:T.dim, fontSize:10, marginTop:1}}>O/U: {crossVal.apiFootball.underOver}</div>}
+                {crossVal.apiFootball.goalsAvg && <div style={{color:T.dim, fontSize:10, marginTop:1}}>예상골: 홈 {crossVal.apiFootball.goalsAvg.home ?? "-"} / 원정 {crossVal.apiFootball.goalsAvg.away ?? "-"}</div>}
               </div>
             : <div style={{color:T.muted}}>미연동 (프록시/키 필요)</div>}
         </div>
@@ -2072,10 +2267,14 @@ function PredictPanel({ home, away, sims = 30000, matchDate, onSaved }) {
     matchDate: matchDate || null,
     predictedProbs: { home: result.homeWinProb, draw: result.drawProb, away: result.awayWinProb },
     predictedOutcome: predictedOutcome(result),
+    predictedOU: predictedOU(result.overUnder),   // ★ {2.5:"over"|"under", 3.5:...}
+    overUnderProbs: result.overUnder ?? null,     // ★ 예측 시점 확률 박제
     predictedTopScore: result.topScores?.[0]?.score ?? null,
     actualScore: null,
     actualOutcome: null,
     isHit: null,
+    actualOU: null,
+    ouHits: null,
     resultStatus: "pending",      // pending → final
     resultSource: null,
     confidence: crossVal?.confidence ?? null,
@@ -2201,6 +2400,44 @@ function PredictPanel({ home, away, sims = 30000, matchDate, onSaved }) {
           ))}
         </div>
       </div>
+
+      {/* ★ 오버/언더 2.5 · 3.5 (총 골수 기준) */}
+      {result.overUnder && (
+        <div style={{ marginTop:12 }}>
+          <div style={{ fontSize:12, color:T.muted, marginBottom:6 }}>오버/언더 (총 골수 기준)</div>
+          <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:8 }}>
+            {[2.5, 3.5].map(line => {
+              const m = result.overUnder[line];
+              if (!m) return null;
+              const pickOver = m.over >= m.under;
+              return (
+                <div key={line} style={{ background:T.surface, borderRadius:8, padding:10 }}>
+                  <div style={{ fontSize:11, color:T.muted, marginBottom:6, textAlign:"center" }}>라인 {line}</div>
+                  <div style={{ display:"flex", justifyContent:"space-between", fontSize:12, marginBottom:4 }}>
+                    <span style={{ fontWeight: pickOver?800:400, color: pickOver?T.green:T.text }}>오버 {(m.over*100).toFixed(1)}%</span>
+                    <span style={{ fontWeight: !pickOver?800:400, color: !pickOver?T.green:T.text }}>언더 {(m.under*100).toFixed(1)}%</span>
+                  </div>
+                  <MiniBar value={m.over*100} max={100} color={T.green} height={6}/>
+                  <div style={{ textAlign:"center", marginTop:6 }}>
+                    <Badge color={pickOver?T.green:T.gold}>예측: {OU_LABEL[pickOver?"over":"under"]} {line}</Badge>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+          {result.liveApplied && result.staticOverUnder && (
+            <div style={{ marginTop:6, fontSize:10, color:T.muted, textAlign:"center" }}>
+              정적 대비 변화: 2.5오버 {fmtShift(result.staticOverUnder[2.5]?.over, result.overUnder[2.5]?.over)} ·
+              3.5오버 {fmtShift(result.staticOverUnder[3.5]?.over, result.overUnder[3.5]?.over)}
+            </div>
+          )}
+          {result.marketTotals && (
+            <div style={{ marginTop:6, fontSize:10, color:T.cyan, textAlign:"center" }}>
+              시장배당 토탈: {Object.entries(result.marketTotals).map(([line,o])=>`${line}(O${o.over ?? "-"}/U${o.under ?? "-"})`).join(" · ")}
+            </div>
+          )}
+        </div>
+      )}
 
       {/* 몬테카를로 시뮬레이션 + 블렌딩 설명 */}
       <div style={{ marginTop:10, fontSize:11, color:T.muted, textAlign:"center" }}>
@@ -2328,6 +2565,14 @@ function PredictionHistory({ refreshKey }) {
   const hits = resolved.filter(r => r.isHit).length;
   const accuracy = total > 0 ? (hits / total * 100) : 0;
 
+  // ★ 오버/언더 누적 정확도 (구버전 레코드는 ouHits 없음 → 자동 제외)
+  const ouResolved25 = resolved.filter(r => r.ouHits?.[2.5] != null);
+  const ouHits25 = ouResolved25.filter(r => r.ouHits[2.5]).length;
+  const ouAcc25 = ouResolved25.length > 0 ? (ouHits25/ouResolved25.length*100) : null;
+  const ouResolved35 = resolved.filter(r => r.ouHits?.[3.5] != null);
+  const ouHits35 = ouResolved35.filter(r => r.ouHits[3.5]).length;
+  const ouAcc35 = ouResolved35.length > 0 ? (ouHits35/ouResolved35.length*100) : null;
+
   if (loading) {
     return <div style={{ padding:24, textAlign:"center", color:T.muted }}>예측 히스토리 불러오는 중...</div>;
   }
@@ -2353,6 +2598,26 @@ function PredictionHistory({ refreshKey }) {
           <MiniBar value={accuracy} max={100} color={accuracy>=50 ? T.green : T.red} height={10}/>
         </div>
       </div>
+
+      {(ouAcc25 != null || ouAcc35 != null) && (
+        <div style={{
+          background:T.card, border:`1px solid ${T.border}`, borderRadius:14,
+          padding:"10px 16px", marginBottom:14, display:"flex", justifyContent:"space-around", fontSize:12
+        }}>
+          {ouAcc25 != null && (
+            <div style={{ textAlign:"center" }}>
+              <div style={{ color:T.muted, fontSize:11 }}>O/U 2.5 정확도</div>
+              <div style={{ fontWeight:800, color: ouAcc25>=50?T.green:T.red }}>{ouAcc25.toFixed(1)}% ({ouHits25}/{ouResolved25.length})</div>
+            </div>
+          )}
+          {ouAcc35 != null && (
+            <div style={{ textAlign:"center" }}>
+              <div style={{ color:T.muted, fontSize:11 }}>O/U 3.5 정확도</div>
+              <div style={{ fontWeight:800, color: ouAcc35>=50?T.green:T.red }}>{ouAcc35.toFixed(1)}% ({ouHits35}/{ouResolved35.length})</div>
+            </div>
+          )}
+        </div>
+      )}
 
       {/* ★ 결과 대기중 예측 일괄 동기화 */}
       <div style={{ display:"flex", alignItems:"center", gap:10, marginBottom:14 }}>
@@ -2396,6 +2661,15 @@ function PredictionHistory({ refreshKey }) {
                     {r.confidence != null && ` · 신뢰도 ${r.confidence}/100`}
                     {r.sims ? ` · ${r.sims.toLocaleString()}회` : ""}
                   </div>
+                  {r.predictedOU && (
+                    <div style={{ color:T.muted, marginTop:2, fontSize:11 }}>
+                      O/U 예측: 2.5 {OU_LABEL[r.predictedOU[2.5]]}
+                      {isFinal && r.ouHits?.[2.5] != null && (r.ouHits[2.5] ? " ✅" : " ❌")}
+                      {" · "}3.5 {OU_LABEL[r.predictedOU[3.5]]}
+                      {isFinal && r.ouHits?.[3.5] != null && (r.ouHits[3.5] ? " ✅" : " ❌")}
+                      {isFinal && r.actualOU && ` (실제 합계 ${r.actualScore.home + r.actualScore.away}골)`}
+                    </div>
+                  )}
                   <div style={{ color:T.dim, marginTop:2, fontSize:10 }}>
                     예측 {new Date(r.savedAt).toLocaleString("ko-KR")}
                     {isFinal && r.resultSource && ` · 결과 ${r.resultSource==="api" ? "API 자동" : "수동"}`}
@@ -2689,6 +2963,8 @@ function SettingsPanel() {
   const [cfg, setCfg] = useState({ ...RUNTIME_CONFIG });
   const [status, setStatus] = useState(null); // null|saving|saved
   const [testStatus, setTestStatus] = useState(null); // null|testing|ok|fail
+  const [diagSteps, setDiagSteps] = useState(null);
+  const [diagRunning, setDiagRunning] = useState(false);
 
   useEffect(() => { loadRuntimeConfig().then(c => setCfg({ ...c })); }, []);
 
@@ -2707,6 +2983,16 @@ function SettingsPanel() {
     await saveRuntimeConfig(cfg); // 현재 입력값으로 먼저 적용
     const data = await apiFootball("status", 6000);
     setTestStatus(data?.response ? "ok" : "fail");
+  };
+
+  // ★ 상세 진단: 프록시별/키/fixture/예측/배당 단계별 점검
+  const handleDiagnose = async () => {
+    setDiagRunning(true);
+    setDiagSteps(null);
+    await saveRuntimeConfig(cfg);
+    const steps = await runDiagnostics();
+    setDiagSteps(steps);
+    setDiagRunning(false);
   };
 
   const field = (label, key, placeholder, type="text") => (
@@ -2770,6 +3056,29 @@ function SettingsPanel() {
       {testStatus==="ok" && <div style={{ marginTop:10, textAlign:"center", color:T.green, fontSize:12 }}>✅ API-Football 연결 성공 — 실시간 데이터 사용 가능</div>}
       {testStatus==="fail" && <div style={{ marginTop:10, textAlign:"center", color:T.red, fontSize:12 }}>❌ 연결 실패 — 프록시 URL/키 확인. 프록시가 다운됐을 수 있으니 다른 프록시로 교체해보세요.</div>}
 
+      {/* ★ 상세 진단 */}
+      <button onClick={handleDiagnose} disabled={diagRunning}
+        style={{ width:"100%", marginTop:10, background:T.surface, border:`1px solid ${T.border}`, color:T.cyan,
+          borderRadius:8, padding:"10px", fontWeight:700, cursor:"pointer", fontSize:13 }}>
+        {diagRunning ? "진단 중... (10~20초 소요)" : "🔍 상세 진단 실행 (대한민국 vs 체코 기준)"}
+      </button>
+
+      {diagSteps && (
+        <div style={{ marginTop:10, display:"flex", flexDirection:"column", gap:6 }}>
+          {diagSteps.map((s, i) => (
+            <div key={i} style={{
+              background:T.surface, border:`1px solid ${s.ok===true?T.green:s.ok===false?T.red:T.border}`,
+              borderRadius:8, padding:"8px 10px", fontSize:11
+            }}>
+              <div style={{ fontWeight:700, color: s.ok===true?T.green:s.ok===false?T.red:T.muted }}>
+                {s.ok===true ? "✅" : s.ok===false ? "❌" : "⚪"} {s.step}
+              </div>
+              <div style={{ color:T.muted, marginTop:2, wordBreak:"break-all" }}>{s.detail}</div>
+            </div>
+          ))}
+        </div>
+      )}
+
       <div style={{ marginTop:16, paddingTop:14, borderTop:`1px solid ${T.border}`, fontSize:11, color:T.muted, lineHeight:1.6 }}>
         <b style={{color:T.text}}>📌 이 키로 가져오는 실시간 데이터</b><br/>
         · 종료/진행 경기 스코어 (적중 판정)<br/>
@@ -2827,7 +3136,7 @@ function App() {
   }, []);
 
   return (
-    <div style={{ minHeight:"100vh", background:T.bg, color:T.text, fontFamily:"'Pretendard','Apple SD Gothic Neo',-apple-system,sans-serif", padding:"16px 12px 60px" }}>
+    <div style={{ minHeight:"100vh", maxWidth:"100vw", overflowX:"hidden", boxSizing:"border-box", background:T.bg, color:T.text, fontFamily:"'Pretendard','Apple SD Gothic Neo',-apple-system,sans-serif", padding:"16px 12px 60px" }}>
       <header style={{ position:"relative", textAlign:"center", marginBottom:16 }}>
         <button onClick={()=>setTab("settings")} title="설정" style={{
           position:"absolute", top:0, right:0, background: tab==="settings" ? T.accent : T.card,
@@ -2857,7 +3166,7 @@ function App() {
       {tab === "predict" && (
         <div>
           <div style={{ background:T.card, border:`1px solid ${T.border}`, borderRadius:12, padding:12, marginBottom:12 }}>
-            <div style={{ display:"flex", alignItems:"center", gap:8 }}>
+            <div style={{ display:"grid", gridTemplateColumns:"minmax(0,1fr) 36px minmax(0,1fr)", alignItems:"center", gap:8 }}>
               <select value={home} onChange={e=>{ setHome(e.target.value); setMatchDate(null); }} style={selectStyle}>
                 {ALL_TEAMS.map(t => <option key={t} value={t}>{flag(t)} {t}</option>)}
               </select>
@@ -2955,8 +3264,8 @@ function App() {
 }
 
 const selectStyle = {
-  flex:1, padding:"10px 8px", borderRadius:8, border:`1px solid ${T.border}`,
-  background:T.surface, color:T.text, fontSize:13, fontWeight:600,
+  width:"100%", minWidth:0, padding:"10px 6px", borderRadius:8, border:`1px solid ${T.border}`,
+  background:T.surface, color:T.text, fontSize:13, fontWeight:600, boxSizing:"border-box",
 };
 const swapBtnStyle = {
   background:T.surface, border:`1px solid ${T.border}`, color:T.cyan, borderRadius:8,
