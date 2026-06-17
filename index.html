@@ -5,12 +5,36 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1"/>
 <title>FIFA 2026 월드컵 예측기 v5.1</title>
 <script>
+// 🔬 모바일 진단 — 각 단계를 화면에 표시 (어디서 멈추는지 눈으로 확인)
+window.__status = function(msg, isErr){
+  var el = document.getElementById("root");
+  if (!el) return;
+  var color = isErr ? "#ff6b6b" : "#4ade80";
+  el.innerHTML = '<div style="padding:20px;color:'+color+';font-family:monospace;font-size:14px;line-height:1.8;white-space:pre-wrap;word-break:break-word">'
+    + '🔬 로딩 상태\n\n' + msg + '</div>';
+};
+// 전역 에러를 무조건 화면에 표시
+window.addEventListener("error", function(ev){
+  var el = document.getElementById("root");
+  if (el) el.innerHTML = '<div style="padding:20px;color:#ff6b6b;font-family:monospace;font-size:13px;line-height:1.7;white-space:pre-wrap;word-break:break-word">'
+    + '⚠️ 자바스크립트 에러 (이 화면을 캡처해주세요)\n\n'
+    + (ev.message || "") + '\n\n'
+    + '파일: ' + (ev.filename||"").split("/").pop() + '\n'
+    + '위치: ' + (ev.lineno||"?") + '행 ' + (ev.colno||"?") + '열' + '</div>';
+});
+window.addEventListener("unhandledrejection", function(ev){
+  var el = document.getElementById("root");
+  if (el) el.innerHTML = '<div style="padding:20px;color:#ff6b6b;font-family:monospace;font-size:13px;line-height:1.7;white-space:pre-wrap;word-break:break-word">'
+    + '⚠️ Promise 에러\n\n' + (ev.reason && ev.reason.message ? ev.reason.message : String(ev.reason)) + '</div>';
+});
+</script>
+<script>
 // 📡 CDN 폴백 로더 — 한 CDN이 실패하면 자동으로 다음 CDN에서 로드 (빈 화면 방지)
 (function(){
   function loadScript(urls, globalCheck, done){
     var i = 0;
     function tryNext(){
-      if (i >= urls.length){ done(new Error("모든 CDN 로드 실패")); return; }
+      if (i >= urls.length){ done(new Error("모든 CDN 로드 실패: "+globalCheck)); return; }
       var url = urls[i++];
       var sc = document.createElement("script");
       sc.src = url; sc.crossOrigin = "anonymous";
@@ -28,12 +52,10 @@
     function next(){
       if (idx >= steps.length){ finalCb && finalCb(); return; }
       var step = steps[idx++];
+      if (window.__status) window.__status("["+idx+"/"+steps.length+"] "+step.global+" 불러오는 중...");
       loadScript(step.urls, step.global, function(err){
         if (err){
-          var el = document.getElementById("root");
-          if (el) el.innerHTML = '<div style="padding:20px;color:#ff6b6b;font-family:sans-serif;font-size:14px;line-height:1.7">'
-            + '⚠️ 필수 라이브러리 로드 실패<br/><br/>인터넷 연결을 확인하고 새로고침해주세요.<br/>'
-            + '(WiFi ↔ 데이터 전환도 시도해보세요)</div>';
+          if (window.__status) window.__status("❌ "+step.global+" 로드 실패\n\n인터넷/CDN 차단 문제입니다.\n"+(err.message||""), true);
           return;
         }
         next();
@@ -44,6 +66,7 @@
 
   // ▶ 실제 로딩 실행 — React → ReactDOM → Babel 순서로 (여러 CDN 폴백)
   function startLoading(){
+    if (window.__status) window.__status("시작: 라이브러리 로딩 준비...");
     window.__loadChain([
       { global:"React", urls:[
         "https://unpkg.com/react@18/umd/react.production.min.js",
@@ -63,11 +86,17 @@
     ], function(){
       // 모든 라이브러리 로드 완료 → text/babel 스크립트를 수동 변환·실행 (에러를 화면에 표시)
       try {
+        if (window.__status) window.__status("✅ 라이브러리 로드 완료\n앱 코드 변환 중...");
         if (!window.Babel || !Babel.transform) throw new Error("Babel이 로드되지 않았습니다");
         var scripts = document.querySelectorAll('script[type="text/babel"]');
         for (var i=0;i<scripts.length;i++){
           var code = scripts[i].textContent;
-          var out = Babel.transform(code, { presets:["react"] }).code;
+          var out = Babel.transform(code, {
+            presets: ["react"],
+            sourceType: "script",
+            parserOpts: { sourceType: "script", allowReturnOutsideFunction: true }
+          }).code;
+          if (window.__status) window.__status("✅ 변환 완료\n앱 실행 중...");
           var run = document.createElement("script");
           run.textContent = out;
           document.body.appendChild(run);
