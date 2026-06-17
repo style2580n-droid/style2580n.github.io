@@ -21,9 +21,9 @@ window.addEventListener("unhandledrejection", function(ev){
 });
 </script>
 <!-- React 18 / Babel standalone — 표준 방식. 각 jsdelivr/cdnjs는 unpkg보다 모바일망에서 더 안정적입니다. -->
-<script crossorigin src="https://cdn.jsdelivr.net/npm/react@18/umd/react.production.min.js"></script>
-<script crossorigin src="https://cdn.jsdelivr.net/npm/react-dom@18/umd/react-dom.production.min.js"></script>
-<script crossorigin src="https://cdn.jsdelivr.net/npm/@babel/standalone/babel.min.js"></script>
+<script crossorigin src="https://cdn.jsdelivr.net/npm/react@18.3.1/umd/react.production.min.js"></script>
+<script crossorigin src="https://cdn.jsdelivr.net/npm/react-dom@18.3.1/umd/react-dom.production.min.js"></script>
+<script crossorigin src="https://cdn.jsdelivr.net/npm/@babel/standalone@7.25.6/babel.min.js"></script>
 <style>
   html,body,#root{margin:0;padding:0;background:#05080f;min-height:100vh;}
   *{-webkit-tap-highlight-color:transparent;}
@@ -74,6 +74,51 @@ window.addEventListener("unhandledrejection", function(ev){
 
 <script type="text/babel" data-presets="react">
 const { useState, useCallback, useMemo, useEffect, useRef } = React;
+
+// ═══════════════════════════════════════════════════════════
+// 💾 window.storage 폴리필 — 클로드 아티팩트 전용 API(window.storage)가
+//   존재하지 않는 일반 웹 환경(GitHub Pages 등)에서도 동일하게 동작하도록
+//   localStorage 기반으로 자동 대체. 앱 전체의 모든 저장/불러오기가
+//   window.storage.get/set/delete 를 거치므로, 여기서 한 번만 보강하면
+//   실제 배포 사이트에서도 예측 기록·ELO·설정이 정상적으로 영구 저장됨.
+// ═══════════════════════════════════════════════════════════
+if (typeof window !== "undefined" && !window.storage) {
+  const LS_PREFIX = "wcpred:"; // localStorage 키 충돌 방지용 접두사
+  window.storage = {
+    async get(key, shared) {
+      try {
+        const raw = localStorage.getItem(LS_PREFIX + key);
+        if (raw == null) return null;
+        return { key, value: raw, shared: !!shared };
+      } catch (e) { return null; }
+    },
+    async set(key, value, shared) {
+      try {
+        localStorage.setItem(LS_PREFIX + key, value);
+        return { key, value, shared: !!shared };
+      } catch (e) { return null; }
+    },
+    async delete(key, shared) {
+      try {
+        localStorage.removeItem(LS_PREFIX + key);
+        return { key, deleted: true, shared: !!shared };
+      } catch (e) { return null; }
+    },
+    async list(prefix, shared) {
+      try {
+        const keys = [];
+        for (let i = 0; i < localStorage.length; i++) {
+          const k = localStorage.key(i);
+          if (k && k.startsWith(LS_PREFIX)) {
+            const stripped = k.slice(LS_PREFIX.length);
+            if (!prefix || stripped.startsWith(prefix)) keys.push(stripped);
+          }
+        }
+        return { keys, prefix, shared: !!shared };
+      } catch (e) { return null; }
+    },
+  };
+}
 
 
 // ═══════════════════════════════════════════════════════════
@@ -959,6 +1004,993 @@ const ELO = {
 // 🌟 개막 라운드 실제 결과 — 앱 최초 로드 시 자동으로 예측기록에 반영 + ELO 갱신
 // 📦 백업 전체 데이터 (12~16일 결과 + 리더보드 + 기록 + ELO) — 누락 없이 내장
 const BACKUP_SEED = {"results":{"\ub300\ud55c\ubbfc\uad6d_\uccb4\ucf54":{"home":2,"away":1,"date":"2026-06-13","source":"openfootball/github","fetched":1781352591213},"\uba55\uc2dc\ucf54_\ub0a8\uc544\ud504\ub9ac\uce74\uacf5\ud654\uad6d":{"home":2,"away":0,"date":"2026-06-13","source":"openfootball/github","fetched":1781352591214},"\uce90\ub098\ub2e4_\ubcf4\uc2a4\ub2c8\uc544":{"home":1,"away":1,"date":"2026-06-13","source":"openfootball/github","fetched":1781352606237},"\ubbf8\uad6d_\ud30c\ub77c\uacfc\uc774":{"home":4,"away":1,"date":"2026-06-13","source":"openfootball/github","fetched":1781352606466},"\uce74\ud0c0\ub974_\uc2a4\uc704\uc2a4":{"home":1,"away":1,"date":"2026-06-13","source":"manual","fetched":1781392534923},"\ube0c\ub77c\uc9c8_\ubaa8\ub85c\ucf54":{"home":1,"away":1,"date":"2026-06-14","source":"manual","fetched":1781415357963},"\uc544\uc774\ud2f0_\uc2a4\ucf54\ud2c0\ub79c\ub4dc":{"home":0,"away":1,"date":"2026-06-14","source":"manual","fetched":1781415363865},"\ucf54\ud2b8\ub514\ubd80\uc544\ub974_\uc5d0\ucf70\ub3c4\ub974":{"home":1,"away":0,"date":"2026-06-15","source":"manual","fetched":1781529624908},"\ub124\ub35c\ub780\ub4dc_\uc77c\ubcf8":{"home":2,"away":2,"date":"2026-06-15","source":"manual","fetched":1781529648361},"\ub3c5\uc77c_\ud034\ub77c\uc18c":{"home":7,"away":1,"date":"2026-06-15","source":"manual","fetched":1781529649504},"\uc2a4\uc6e8\ub374_\ud280\ub2c8\uc9c0":{"home":5,"away":1,"date":"2026-06-15","source":"manual","fetched":1781529693626},"\ud638\uc8fc_\ud280\ub974\ud0a4\uc608":{"home":2,"away":0,"date":"2026-06-15","source":"manual","fetched":1781529719424},"\uc774\ub780_\ub274\uc9c8\ub79c\ub4dc":{"home":2,"away":2,"date":"2026-06-16","source":"manual","fetched":1781617769323},"\ubca8\uae30\uc5d0_\uc774\uc9d1\ud2b8":{"home":1,"away":1,"date":"2026-06-16","source":"manual","fetched":1781617777883},"\uc2a4\ud398\uc778_\uce74\ubcf4\ubca0\ub974\ub370":{"home":0,"away":0,"date":"2026-06-16","source":"manual","fetched":1781617782997},"\uc0ac\uc6b0\ub514\uc544\ub77c\ube44\uc544_\uc6b0\ub8e8\uacfc\uc774":{"home":1,"away":1,"date":"2026-06-16","source":"manual","fetched":1781617805012}},"leaderboard":{"scorers":{"Ismael Saibari|\ubaa8\ub85c\ucf54":2,"Vin\u00edcius J\u00fanior|\ube0c\ub77c\uc9c8":2,"John McGinn|\uc2a4\ucf54\ud2c0\ub79c\ub4dc":2,"Nestory Irankunda|\ubbf8\uad6d":2,"Connor Metcalfe|\ubbf8\uad6d":2,"Felix Nmecha|\ub3c5\uc77c":2,"Livano Comenencia|\ud034\ub77c\uc18c":2,"Nico Schlotterbeck|\ub3c5\uc77c":2,"Kai Havertz|\ub3c5\uc77c":4,"Jamal Musiala|\ub3c5\uc77c":2,"Nathaniel Brown|\ub3c5\uc77c":2,"Deniz Undav|\ub3c5\uc77c":2,"Virgil van Dijk|\ub124\ub35c\ub780\ub4dc":2,"Keito Nakamura|\uc77c\ubcf8":2,"Crysencio Summerville|\ub124\ub35c\ub780\ub4dc":2,"Daichi Kamada|\uc77c\ubcf8":2,"Amad Diallo|\ucf54\ud2b8\ub514\ubd80\uc544\ub974":2,"Yasin Ayari|\uc2a4\uc6e8\ub374":4,"Alexander Isak|\uc2a4\uc6e8\ub374":2,"Omar Rekik|\ud280\ub2c8\uc9c0":2,"Viktor Gy\u00f6keres|\uc2a4\uc6e8\ub374":2,"Mattias Svanberg|\uc2a4\uc6e8\ub374":2,"Emam Ashour|\uc774\uc9d1\ud2b8":2,"Mohamed Hany|\ubca8\uae30\uc5d0":1,"Abdulelah Al-Amri|\uc0ac\uc6b0\ub514\uc544\ub77c\ube44\uc544":2,"Maxi Ara\u00fajo|\uc6b0\ub8e8\uacfc\uc774":2,"Elijah Just|\ub274\uc9c8\ub79c\ub4dc":4,"Ramin Rezaeian|\uc774\ub780":2,"Mohammad Mohebbi|\uc774\ub780":2},"assists":{"Brahim D\u00edaz|\ubaa8\ub85c\ucf54":2,"Bruno Guimar\u00e3es|\ube0c\ub77c\uc9c8":2,"Paul Okon-Engstler|\ubbf8\uad6d":2,"Florian Wirtz|\ub3c5\uc77c":2,"Nathaniel Brown|\ub3c5\uc77c":2,"Joshua Kimmich|\ub3c5\uc77c":4,"Deniz Undav|\ub3c5\uc77c":4,"Ryan Gravenberch|\ub124\ub35c\ub780\ub4dc":4,"Takefusa Kubo|\uc77c\ubcf8":2,"Koki Ogawa|\uc77c\ubcf8":2,"Wilfried Singo|\ucf54\ud2b8\ub514\ubd80\uc544\ub974":2,"Viktor Gy\u00f6keres|\uc2a4\uc6e8\ub374":2,"Hannibal Mejbri|\ud280\ub2c8\uc9c0":2,"Alexander Isak|\uc2a4\uc6e8\ub374":4,"Lucas Bergvall|\uc2a4\uc6e8\ub374":2,"Mohamed Salah|\uc774\uc9d1\ud2b8":2,"Chris Wood|\ub274\uc9c8\ub79c\ub4dc":4,"Ramin Rezaeian|\uc774\ub780":2},"gk":{"Mahmoud Abunada|\uce74\ud0c0\ub974":{"apps":1,"cs":0,"conceded":1},"Gregor Kobel|\uc2a4\uc704\uc2a4":{"apps":1,"cs":0,"conceded":1},"Alisson Becker|\ube0c\ub77c\uc9c8":{"apps":1,"cs":0,"conceded":1},"Yassine Bounou|\ubaa8\ub85c\ucf54":{"apps":1,"cs":0,"conceded":1},"Johny Placide|\uc544\uc774\ud2f0":{"apps":1,"cs":0,"conceded":1},"Angus Gunn|\uc2a4\ucf54\ud2c0\ub79c\ub4dc":{"apps":1,"cs":1,"conceded":0},"Patrick Beach|\ubbf8\uad6d":{"apps":1,"cs":1,"conceded":0},"Ugurcan \u00c7akir|\ud280\ub974\ud0a4\uc608":{"apps":1,"cs":0,"conceded":2},"Manuel Neuer|\ub3c5\uc77c":{"apps":1,"cs":0,"conceded":1},"Eloy Room|\ud034\ub77c\uc18c":{"apps":1,"cs":0,"conceded":7},"Bart Verbruggen|\ub124\ub35c\ub780\ub4dc":{"apps":1,"cs":0,"conceded":2},"Zion Suzuki|\uc77c\ubcf8":{"apps":1,"cs":0,"conceded":2},"Yahia Fofana|\ucf54\ud2b8\ub514\ubd80\uc544\ub974":{"apps":1,"cs":1,"conceded":0},"Hern\u00e1n Gal\u00edndez|\uc5d0\ucf70\ub3c4\ub974":{"apps":1,"cs":0,"conceded":1},"Kristoffer Nordfeldt|\uc2a4\uc6e8\ub374":{"apps":1,"cs":0,"conceded":1},"Mouhib Chamakh|\ud280\ub2c8\uc9c0":{"apps":1,"cs":0,"conceded":5},"Unai Sim\u00f3n|\uc2a4\ud398\uc778":{"apps":1,"cs":1,"conceded":0},"Vozinha|\uce74\ubcf4\ubca0\ub974\ub370":{"apps":1,"cs":1,"conceded":0},"Thibaut Courtois|\ubca8\uae30\uc5d0":{"apps":1,"cs":0,"conceded":1},"Mostafa Shoubir|\uc774\uc9d1\ud2b8":{"apps":1,"cs":0,"conceded":1},"Mohammed Al-Owais|\uc0ac\uc6b0\ub514\uc544\ub77c\ube44\uc544":{"apps":1,"cs":0,"conceded":1},"Fernando Muslera|\uc6b0\ub8e8\uacfc\uc774":{"apps":1,"cs":0,"conceded":1},"Alireza Beiranvand|\uc774\ub780":{"apps":1,"cs":0,"conceded":2},"Max Crocombe|\ub274\uc9c8\ub79c\ub4dc":{"apps":1,"cs":0,"conceded":2}},"processedEvents":["760416","760417","760415","760414","760420","760419","760418","760421","760422","760425","760423","760424","760428","760426","760429","760427"],"lastDate":"2026-06-16","cards":{"Casemiro|\ube0c\ub77c\uc9c8":{"yellow":1,"red":0},"Roger Iba\u00f1ez|\ube0c\ub77c\uc9c8":{"yellow":1,"red":0},"Jean-Ricner Bellegarde|\uc544\uc774\ud2f0":{"yellow":1,"red":0},"Aaron Hickey|\uc2a4\ucf54\ud2c0\ub79c\ub4dc":{"yellow":1,"red":0},"Findlay Curtis|\uc2a4\ucf54\ud2c0\ub79c\ub4dc":{"yellow":1,"red":0},"Kenny McLean|\uc2a4\ucf54\ud2c0\ub79c\ub4dc":{"yellow":1,"red":0},"Yunus Akg\u00fcn|\ud280\ub974\ud0a4\uc608":{"yellow":1,"red":0},"Crysencio Summerville|\ub124\ub35c\ub780\ub4dc":{"yellow":1,"red":0},"Memphis Depay|\ub124\ub35c\ub780\ub4dc":{"yellow":1,"red":0},"Micky van de Ven|\ub124\ub35c\ub780\ub4dc":{"yellow":1,"red":0},"Seko Fofana|\ucf54\ud2b8\ub514\ubd80\uc544\ub974":{"yellow":1,"red":0},"Franck Kessi\u00e9|\ucf54\ud2b8\ub514\ubd80\uc544\ub974":{"yellow":1,"red":0},"Guela Dou\u00e9|\ucf54\ud2b8\ub514\ubd80\uc544\ub974":{"yellow":1,"red":0},"Jackson Porozo|\uc5d0\ucf70\ub3c4\ub974":{"yellow":1,"red":0},"Rani Khedira|\ud280\ub2c8\uc9c0":{"yellow":1,"red":0},"Sidny Lopes Cabral|\uce74\ubcf4\ubca0\ub974\ub370":{"yellow":1,"red":0},"Pedri|\uc2a4\ud398\uc778":{"yellow":1,"red":0},"Marawan Attia|\uc774\uc9d1\ud2b8":{"yellow":1,"red":0},"Timothy Castagne|\ubca8\uae30\uc5d0":{"yellow":1,"red":0},"Ahmed Fatouh|\uc774\uc9d1\ud2b8":{"yellow":1,"red":0},"Maxim De Cuyper|\ubca8\uae30\uc5d0":{"yellow":1,"red":0},"Abdulelah Al-Amri|\uc0ac\uc6b0\ub514\uc544\ub77c\ube44\uc544":{"yellow":1,"red":0},"Ehsan Hajsafi|\uc774\ub780":{"yellow":1,"red":0}},"ownGoals":{"Mohamed Hany|\ubca8\uae30\uc5d0":1},"scorersAF":{},"assistsAF":{},"apiFootballLastFetch":1781618346084},"history":[{"id":1781618707972,"home":"\uc6b0\uc988\ubca0\ud0a4\uc2a4\ud0c4","away":"\ucf5c\ub86c\ube44\uc544","date":"2026-06-18","homeWinProb":0.16163156968146344,"drawProb":0.24737525999999999,"awayWinProb":0.5909931703185366,"topScore":"0-1","liveApplied":false,"actualHome":null,"actualAway":null,"settled":false},{"id":1781618640421,"home":"\uac00\ub098","away":"\ud30c\ub098\ub9c8","date":"2026-06-18","homeWinProb":0.4835878935235256,"drawProb":0.2782071199999999,"awayWinProb":0.23820498647647445,"topScore":"1-0","liveApplied":false,"actualHome":null,"actualAway":null,"settled":false},{"id":1781618577628,"home":"\uc789\uae00\ub79c\ub4dc","away":"\ud06c\ub85c\uc544\ud2f0\uc544","date":"2026-06-18","homeWinProb":0.5286693205755508,"drawProb":0.25465062,"awayWinProb":0.21668005942444923,"topScore":"2-1","liveApplied":false,"actualHome":null,"actualAway":null,"settled":false},{"id":1781618504266,"home":"\ud3ec\ub974\ud22c\uac08","away":"\ucf69\uace0\ubbfc\uc8fc\uacf5\ud654\uad6d","date":"2026-06-18","homeWinProb":0.6921017614496762,"drawProb":0.20724557999999998,"awayWinProb":0.10065265855032382,"topScore":"2-0","liveApplied":false,"actualHome":null,"actualAway":null,"settled":false},{"id":1781618293692,"home":"\uc624\uc2a4\ud2b8\ub9ac\uc544","away":"\uc694\ub974\ub2e8","date":"2026-06-17","homeWinProb":0.5560537403042249,"drawProb":0.2536529,"awayWinProb":0.19029335969577502,"topScore":"1-0","liveApplied":false,"actualHome":null,"actualAway":null,"settled":false},{"id":1781618183237,"home":"\uc544\ub974\ud5e8\ud2f0\ub098","away":"\uc54c\uc81c\ub9ac","date":"2026-06-17","homeWinProb":0.6866157456163142,"drawProb":0.20888300000000004,"awayWinProb":0.10450125438368568,"topScore":"2-0","liveApplied":false,"actualHome":null,"actualAway":null,"settled":false},{"id":1781618091887,"home":"\uc774\ub77c\ud06c","away":"\ub178\ub974\uc6e8\uc774","date":"2026-06-17","homeWinProb":0.13041045634295614,"drawProb":0.2180342,"awayWinProb":0.6515553436570438,"topScore":"0-2","liveApplied":false,"actualHome":null,"actualAway":null,"settled":false},{"id":1781617964642,"home":"\ud504\ub791\uc2a4","away":"\uc138\ub124\uac08","date":"2026-06-17","homeWinProb":0.6087055120889582,"drawProb":0.23071638,"awayWinProb":0.16057810791104177,"topScore":"2-1","liveApplied":false,"actualHome":null,"actualAway":null,"settled":false},{"id":1781530513981,"home":"\uc774\ub780","away":"\ub274\uc9c8\ub79c\ub4dc","date":"2026-06-16","homeWinProb":0.5661573783159275,"drawProb":0.25705936,"awayWinProb":0.1767832616840725,"topScore":"1-0","liveApplied":false,"actualHome":2,"actualAway":2,"settled":true},{"id":1781530372363,"home":"\ubca8\uae30\uc5d0","away":"\uc774\uc9d1\ud2b8","date":"2026-06-16","homeWinProb":0.5844400616551102,"drawProb":0.24281712000000005,"awayWinProb":0.17274281834488975,"topScore":"2-1","liveApplied":false,"actualHome":1,"actualAway":1,"settled":true},{"id":1781530287827,"home":"\uc2a4\ud398\uc778","away":"\uce74\ubcf4\ubca0\ub974\ub370","date":"2026-06-16","homeWinProb":0.7528540775186672,"drawProb":0.17995499999999998,"awayWinProb":0.06719092248133278,"topScore":"2-0","liveApplied":false,"actualHome":0,"actualAway":0,"settled":true},{"id":1781352544044,"home":"\uc0ac\uc6b0\ub514\uc544\ub77c\ube44\uc544","away":"\uc6b0\ub8e8\uacfc\uc774","date":"2026-06-16","homeWinProb":0.2567,"drawProb":0.238,"awayWinProb":0.5053,"topScore":"1-1","liveApplied":false,"actualHome":1,"actualAway":1,"settled":true},{"id":1781352544043,"home":"\uc2a4\uc6e8\ub374","away":"\ud280\ub2c8\uc9c0","date":"2026-06-15","homeWinProb":0.6966,"drawProb":0.1739,"awayWinProb":0.1295,"topScore":"3-0","liveApplied":false,"actualHome":5,"actualAway":1,"settled":true},{"id":1781352544042,"home":"\ub3c5\uc77c","away":"\ud034\ub77c\uc18c","date":"2026-06-15","homeWinProb":0.8701,"drawProb":0.102,"awayWinProb":0.0279,"topScore":"4-0","liveApplied":false,"actualHome":7,"actualAway":1,"settled":true},{"id":1781352544041,"home":"\ub124\ub35c\ub780\ub4dc","away":"\uc77c\ubcf8","date":"2026-06-15","homeWinProb":0.5335,"drawProb":0.2288,"awayWinProb":0.2376,"topScore":"1-1","liveApplied":false,"actualHome":2,"actualAway":2,"settled":true},{"id":1781352544040,"home":"\ucf54\ud2b8\ub514\ubd80\uc544\ub974","away":"\uc5d0\ucf70\ub3c4\ub974","date":"2026-06-15","homeWinProb":0.4767,"drawProb":0.259,"awayWinProb":0.2643,"topScore":"1-0","liveApplied":false,"actualHome":1,"actualAway":0,"settled":true},{"id":1781392838398,"home":"\ud638\uc8fc","away":"\ud280\ub974\ud0a4\uc608","date":"2026-06-14","homeWinProb":0.35843584344033513,"drawProb":0.29135915999999995,"awayWinProb":0.35020499655966486,"topScore":"0-1","liveApplied":false,"actualHome":2,"actualAway":0,"settled":true},{"id":1781392765429,"home":"\uc544\uc774\ud2f0","away":"\uc2a4\ucf54\ud2c0\ub79c\ub4dc","date":"2026-06-14","homeWinProb":0.27095213036932797,"drawProb":0.27948387999999996,"awayWinProb":0.449563989630672,"topScore":"0-1","liveApplied":false,"actualHome":0,"actualAway":1,"settled":true},{"id":1781392593636,"home":"\ube0c\ub77c\uc9c8","away":"\ubaa8\ub85c\ucf54","date":"2026-06-14","homeWinProb":0.5694027099777031,"drawProb":0.24484978000000002,"awayWinProb":0.18574751002229684,"topScore":"2-1","liveApplied":false,"actualHome":1,"actualAway":1,"settled":true},{"id":1781339066553,"home":"\uce74\ud0c0\ub974","away":"\uc2a4\uc704\uc2a4","date":"2026-06-14","homeWinProb":0.24408930846894863,"drawProb":0.27342380000000005,"awayWinProb":0.4824868915310513,"topScore":"1-1","liveApplied":false,"actualHome":1,"actualAway":1,"settled":true},{"id":1781352544050,"home":"\ubbf8\uad6d","away":"\ud30c\ub77c\uacfc\uc774","date":"2026-06-13","homeWinProb":0.62,"drawProb":0.22,"awayWinProb":0.16,"topScore":"2-0","liveApplied":false,"actualHome":4,"actualAway":1,"settled":true},{"id":1781352544049,"home":"\uce90\ub098\ub2e4","away":"\ubcf4\uc2a4\ub2c8\uc544","date":"2026-06-13","homeWinProb":0.35,"drawProb":0.28,"awayWinProb":0.37,"topScore":"1-1","liveApplied":false,"actualHome":1,"actualAway":1,"settled":true},{"id":1781352544048,"home":"\ub300\ud55c\ubbfc\uad6d","away":"\uccb4\ucf54","date":"2026-06-12","homeWinProb":0.4,"drawProb":0.28,"awayWinProb":0.32,"topScore":"1-1","liveApplied":false,"actualHome":2,"actualAway":1,"settled":true},{"id":1781352544047,"home":"\uba55\uc2dc\ucf54","away":"\ub0a8\uc544\ud504\ub9ac\uce74\uacf5\ud654\uad6d","date":"2026-06-12","homeWinProb":0.55,"drawProb":0.25,"awayWinProb":0.2,"topScore":"2-1","liveApplied":false,"actualHome":2,"actualAway":0,"settled":true}],"dynamicElo":{"\uba55\uc2dc\ucf54":{"base":1546.5961118802052,"xgElo":1530,"atk":1530,"def":1500,"form":1510,"market":1530,"player":1540,"xG":1.8239999999999998,"xGA":0.86,"npXg":1.52,"ppda":11.8,"fieldTilt":47,"setPxg":0.26,"formArr":[1,0,0,1,1],"fatigue":0,"injuries":1},"\ub0a8\uc544\ud504\ub9ac\uce74\uacf5\ud654\uad6d":{"base":1373.4038881197948,"xgElo":1370,"atk":1360,"def":1360,"form":1370,"market":1350,"player":1360,"xG":0.965,"xGA":1.6139999999999999,"npXg":1.15,"ppda":14.5,"fieldTilt":41,"setPxg":0.21,"formArr":[0,1,0,0,1],"fatigue":0,"injuries":0},"\ub300\ud55c\ubbfc\uad6d":{"base":1565.2378193491916,"xgElo":1570,"atk":1550,"def":1530,"form":1560,"market":1540,"player":1580,"xG":1.894,"xGA":1.146,"npXg":1.62,"ppda":11.5,"fieldTilt":48,"setPxg":0.28,"formArr":[1,1,0,1,1],"fatigue":0,"injuries":1},"\uccb4\ucf54":{"base":1434.7621806508084,"xgElo":1450,"atk":1430,"def":1420,"form":1440,"market":1420,"player":1430,"xG":1.384,"xGA":1.4949999999999999,"npXg":1.32,"ppda":12,"fieldTilt":47,"setPxg":0.27,"formArr":[1,0,1,1,0],"fatigue":0,"injuries":0},"\uce90\ub098\ub2e4":{"base":1545.2378193491916,"xgElo":1560,"atk":1540,"def":1520,"form":1540,"market":1530,"player":1550,"xG":1.545,"xGA":1.125,"npXg":1.55,"ppda":11.2,"fieldTilt":49,"setPxg":0.3,"formArr":[1,0,1,1,0],"fatigue":0,"injuries":0},"\ubcf4\uc2a4\ub2c8\uc544":{"base":1434.7621806508084,"xgElo":1420,"atk":1410,"def":1400,"form":1420,"market":1400,"player":1420,"xG":1.335,"xGA":1.244,"npXg":1.25,"ppda":12.8,"fieldTilt":45,"setPxg":0.26,"formArr":[1,1,0,0,1],"fatigue":0,"injuries":0},"\ubbf8\uad6d":{"base":1606.708881460769,"xgElo":1610,"atk":1590,"def":1580,"form":1590,"market":1590,"player":1600,"xG":2.5359999999999996,"xGA":1.0899999999999999,"npXg":1.65,"ppda":10.8,"fieldTilt":50,"setPxg":0.32,"formArr":[1,1,1,0,1],"fatigue":0,"injuries":2},"\ud30c\ub77c\uacfc\uc774":{"base":1403.291118539231,"xgElo":1400,"atk":1390,"def":1410,"form":1400,"market":1390,"player":1400,"xG":1.314,"xGA":2.165,"npXg":1.22,"ppda":14.2,"fieldTilt":40,"setPxg":0.2,"formArr":[1,0,0,1,0],"fatigue":0,"injuries":0},"\uce74\ud0c0\ub974":{"base":1366.474353076121,"xgElo":1350,"atk":1340,"def":1350,"form":1350,"market":1330,"player":1340,"xG":1.2412,"xGA":1.3392,"npXg":1.08,"ppda":15.1,"fieldTilt":39,"setPxg":0.21,"formArr":[0,1,0,1,0],"fatigue":0,"injuries":0},"\uc2a4\uc704\uc2a4":{"base":1533.525646923879,"xgElo":1530,"atk":1510,"def":1540,"form":1520,"market":1520,"player":1520,"xG":1.4371999999999998,"xGA":1.1628,"npXg":1.48,"ppda":10.3,"fieldTilt":52,"setPxg":0.31,"formArr":[1,1,0,1,1],"fatigue":0,"injuries":0},"\uc544\uc774\ud2f0":{"base":1274.9435714473607,"xgElo":1280,"atk":1270,"def":1280,"form":1280,"market":1260,"player":1270,"xG":0.6674999999999999,"xGA":1.4078,"npXg":0.95,"ppda":16.5,"fieldTilt":35,"setPxg":0.16,"formArr":[1,0,1,0,0],"fatigue":0,"injuries":0},"\uc2a4\ucf54\ud2c0\ub79c\ub4dc":{"base":1445.0564285526393,"xgElo":1420,"atk":1410,"def":1420,"form":1420,"market":1410,"player":1420,"xG":1.3098,"xGA":0.7507999999999999,"npXg":1.22,"ppda":12.9,"fieldTilt":45,"setPxg":0.25,"formArr":[1,0,1,0,1],"fatigue":0,"injuries":0},"\ube0c\ub77c\uc9c8":{"base":1806.8720722760336,"xgElo":1810,"atk":1780,"def":1770,"form":1800,"market":1790,"player":1810,"xG":1.7311999999999999,"xGA":1.0452,"npXg":2.05,"ppda":8.2,"fieldTilt":58,"setPxg":0.38,"formArr":[1,1,1,0,1],"fatigue":0,"injuries":2},"\ubaa8\ub85c\ucf54":{"base":1613.1279277239664,"xgElo":1590,"atk":1560,"def":1620,"form":1580,"market":1580,"player":1590,"xG":1.4714999999999998,"xGA":1.0941999999999998,"npXg":1.55,"ppda":12.1,"fieldTilt":46,"setPxg":0.27,"formArr":[1,1,0,1,1],"fatigue":0,"injuries":0},"\ucf54\ud2b8\ub514\ubd80\uc544\ub974":{"base":1517.1987000039423,"xgElo":1500,"atk":1500,"def":1480,"form":1500,"market":1490,"player":1500,"xG":1.496,"xGA":0.846,"npXg":1.48,"ppda":12.6,"fieldTilt":47,"setPxg":0.27,"formArr":[1,1,0,1,1],"fatigue":0,"injuries":0},"\uc5d0\ucf70\ub3c4\ub974":{"base":1462.8012999960577,"xgElo":1460,"atk":1450,"def":1440,"form":1460,"market":1450,"player":1460,"xG":1.1260000000000001,"xGA":1.216,"npXg":1.38,"ppda":12.4,"fieldTilt":46,"setPxg":0.26,"formArr":[1,1,0,0,1],"fatigue":0,"injuries":0},"\ub124\ub35c\ub780\ub4dc":{"base":1714.5980664667804,"xgElo":1730,"atk":1700,"def":1720,"form":1710,"market":1710,"player":1720,"xG":2.034,"xGA":1.3199999999999998,"npXg":1.8,"ppda":8,"fieldTilt":60,"setPxg":0.4,"formArr":[1,1,1,1,1],"fatigue":0,"injuries":1},"\uc77c\ubcf8":{"base":1575.4019335332196,"xgElo":1580,"atk":1560,"def":1570,"form":1570,"market":1550,"player":1560,"xG":1.8659999999999999,"xGA":1.4249999999999998,"npXg":1.58,"ppda":9.8,"fieldTilt":53,"setPxg":0.31,"formArr":[1,1,0,1,0],"fatigue":0,"injuries":0},"\ub3c5\uc77c":{"base":1741.4162164111328,"xgElo":1750,"atk":1730,"def":1700,"form":1750,"market":1730,"player":1740,"xG":3.5759999999999996,"xGA":1.034,"npXg":1.88,"ppda":7.8,"fieldTilt":59,"setPxg":0.36,"formArr":[1,1,1,0,1],"fatigue":0,"injuries":1},"\ud034\ub77c\uc18c":{"base":1248.5837835888672,"xgElo":1240,"atk":1230,"def":1250,"form":1240,"market":1220,"player":1230,"xG":1.076,"xGA":3.275,"npXg":0.88,"ppda":16,"fieldTilt":36,"setPxg":0.17,"formArr":[0,1,0,0,1],"fatigue":0,"injuries":0},"\uc2a4\uc6e8\ub374":{"base":1577.3554537084653,"xgElo":1560,"atk":1570,"def":1540,"form":1560,"market":1550,"player":1560,"xG":2.836,"xGA":1.104,"npXg":1.68,"ppda":10.8,"fieldTilt":51,"setPxg":0.32,"formArr":[1,1,1,0,1],"fatigue":0,"injuries":0},"\ud280\ub2c8\uc9c0":{"base":1392.6445462915347,"xgElo":1390,"atk":1380,"def":1400,"form":1390,"market":1380,"player":1390,"xG":1.286,"xGA":2.444,"npXg":1.18,"ppda":14,"fieldTilt":41,"setPxg":0.22,"formArr":[1,0,0,1,1],"fatigue":0,"injuries":0},"\ud638\uc8fc":{"base":1426.8337516424951,"xgElo":1380,"atk":1360,"def":1390,"form":1370,"market":1370,"player":1370,"xG":1.7854999999999999,"xGA":0.7655,"npXg":1.15,"ppda":13.5,"fieldTilt":43,"setPxg":0.2,"formArr":[1,0,1,1,0],"fatigue":0,"injuries":0},"\ud280\ub974\ud0a4\uc608":{"base":1513.1662483575049,"xgElo":1540,"atk":1540,"def":1510,"form":1540,"market":1530,"player":1540,"xG":0.9614999999999998,"xGA":1.6874999999999998,"npXg":1.55,"ppda":10.8,"fieldTilt":52,"setPxg":0.32,"formArr":[1,1,0,1,1],"fatigue":0,"injuries":0},"\ubca8\uae30\uc5d0":{"base":1676.8720722760336,"xgElo":1680,"atk":1680,"def":1650,"form":1660,"market":1680,"player":1700,"xG":1.5842,"xGA":1.1432,"npXg":1.75,"ppda":9.3,"fieldTilt":54,"setPxg":0.33,"formArr":[1,1,0,1,1],"fatigue":0,"injuries":1},"\uc774\uc9d1\ud2b8":{"base":1483.1279277239664,"xgElo":1460,"atk":1470,"def":1440,"form":1460,"market":1460,"player":1480,"xG":1.4224999999999999,"xGA":1.2264999999999997,"npXg":1.45,"ppda":13.9,"fieldTilt":42,"setPxg":0.23,"formArr":[1,0,1,1,0],"fatigue":0,"injuries":0},"\uc2a4\ud398\uc778":{"base":1771.7048133068738,"xgElo":1800,"atk":1750,"def":1760,"form":1800,"market":1780,"player":1780,"xG":1.2408000000000001,"xGA":0.5449999999999999,"npXg":2.1,"ppda":6.3,"fieldTilt":65,"setPxg":0.41,"formArr":[1,1,1,1,1],"fatigue":0,"injuries":2},"\uce74\ubcf4\ubca0\ub974\ub370":{"base":1318.2951866931262,"xgElo":1290,"atk":1280,"def":1290,"form":1290,"market":1270,"player":1280,"xG":0.6821999999999999,"xGA":0.8634999999999999,"npXg":0.98,"ppda":15.8,"fieldTilt":38,"setPxg":0.18,"formArr":[0,1,0,1,0],"fatigue":0,"injuries":0},"\uc0ac\uc6b0\ub514\uc544\ub77c\ube44\uc544":{"base":1425.9680011017263,"xgElo":1410,"atk":1400,"def":1390,"form":1410,"market":1400,"player":1410,"xG":1.5492,"xGA":1.4708,"npXg":1.28,"ppda":13.7,"fieldTilt":43,"setPxg":0.22,"formArr":[1,0,0,1,1],"fatigue":0,"injuries":0},"\uc6b0\ub8e8\uacfc\uc774":{"base":1584.0319988982737,"xgElo":1580,"atk":1570,"def":1600,"form":1570,"market":1580,"player":1580,"xG":1.7157999999999998,"xGA":1.3531999999999997,"npXg":1.62,"ppda":10.9,"fieldTilt":51,"setPxg":0.3,"formArr":[1,1,0,1,1],"fatigue":0,"injuries":0},"\uc774\ub780":{"base":1468.6320786306574,"xgElo":1470,"atk":1460,"def":1490,"form":1470,"market":1460,"player":1470,"xG":1.8981999999999999,"xGA":1.6874999999999998,"npXg":1.38,"ppda":14.8,"fieldTilt":40,"setPxg":0.22,"formArr":[1,1,0,0,1],"fatigue":0,"injuries":0},"\ub274\uc9c8\ub79c\ub4dc":{"base":1321.3679213693426,"xgElo":1300,"atk":1290,"def":1310,"form":1300,"market":1290,"player":1300,"xG":1.7364999999999997,"xGA":1.8687999999999996,"npXg":1.05,"ppda":16.8,"fieldTilt":36,"setPxg":0.17,"formArr":[0,1,0,1,0],"fatigue":0,"injuries":0}}};
+
+// ═══════════════════════════════════════════════════════════
+// 📊 STATIC_MATCH_STATS — 종료된 16경기 선수 개인 기록 전체 내장
+//   출처: 네이버 스포츠 (m.sports.naver.com) 통합 분석 리포트
+//   키 형식: "홈팀_원정팀" (SQUADS/OPENING_RESULTS와 동일한 네이밍)
+//   각 항목: { team, pos, goals, assists, shots, shotsOnTarget, xg, xa,
+//             passes, interceptions, tackles, clearances }
+// ═══════════════════════════════════════════════════════════
+const STATIC_MATCH_STATS = {
+"대한민국_체코": {
+  date:"2026-06-12",
+  team: {
+    home:{possession:62,shots:15,shotsOnTarget:6,passes:541,passesAcc:469,keyPasses:14,corners:4,freeKicks:16,offsides:2,saves:3,fouls:9,yellow:1,red:0,xg:2.30,xa:1.37},
+    away:{possession:39,shots:7,shotsOnTarget:4,passes:327,passesAcc:230,keyPasses:3,corners:5,freeKicks:9,offsides:2,saves:4,fouls:16,yellow:0,red:0,xg:0.83,xa:0.44},
+  },
+  home:[
+    {name:"오현규",pos:"FW",goals:1,assists:0,shots:1,shotsOnTarget:1,xg:0.37,xa:null,passes:"4/7",interceptions:0,tackles:0,clearances:0},
+    {name:"손흥민",pos:"FW",goals:0,assists:0,shots:6,shotsOnTarget:1,xg:1.01,xa:0.04,passes:"20/22",interceptions:0,tackles:0,clearances:0},
+    {name:"황희찬",pos:"FW",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:null,passes:"10/11",interceptions:0,tackles:0,clearances:0},
+    {name:"황인범",pos:"MF",goals:1,assists:1,shots:3,shotsOnTarget:2,xg:0.36,xa:0.50,passes:"73/81",interceptions:2,tackles:0,clearances:1},
+    {name:"이강인",pos:"MF",goals:0,assists:1,shots:1,shotsOnTarget:1,xg:0.02,xa:0.21,passes:"38/38",interceptions:0,tackles:0,clearances:0},
+    {name:"이재성",pos:"MF",goals:0,assists:0,shots:2,shotsOnTarget:1,xg:0.45,xa:0.10,passes:"25/33",interceptions:1,tackles:0,clearances:2},
+    {name:"백승호",pos:"MF",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:0.05,passes:"56/63",interceptions:0,tackles:0,clearances:4},
+    {name:"이태석",pos:"MF",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:0.34,passes:"21/25",interceptions:0,tackles:1,clearances:6},
+    {name:"설영우",pos:"MF",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:0.05,passes:"30/32",interceptions:1,tackles:0,clearances:1},
+    {name:"김민재",pos:"DF",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:0.01,passes:"51/54",interceptions:2,tackles:0,clearances:3},
+    {name:"이기혁",pos:"DF",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:0.02,passes:"58/62",interceptions:3,tackles:1,clearances:8},
+    {name:"이한범",pos:"DF",goals:0,assists:0,shots:1,shotsOnTarget:0,xg:0.04,xa:0.03,passes:"53/63",interceptions:0,tackles:1,clearances:5},
+    {name:"김승규",pos:"GK",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:null,passes:"19/34",interceptions:0,tackles:0,clearances:0},
+    {name:"엄지성",pos:"FW",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:0.01,passes:"2/3",interceptions:0,tackles:2,clearances:1},
+    {name:"김진규",pos:"MF",goals:0,assists:0,shots:1,shotsOnTarget:0,xg:0.06,xa:null,passes:"3/4",interceptions:0,tackles:0,clearances:0},
+    {name:"박진섭",pos:"MF",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:null,passes:"6/9",interceptions:0,tackles:0,clearances:1},
+  ],
+  away:[
+    {name:"파트릭 시크",pos:"FW",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:null,passes:"3/5",interceptions:0,tackles:0,clearances:2},
+    {name:"파벨 술츠",pos:"MF",goals:0,assists:0,shots:1,shotsOnTarget:0,xg:0.01,xa:0.01,passes:"13/18",interceptions:0,tackles:2,clearances:1},
+    {name:"루카스 프로보드",pos:"MF",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:0.01,passes:"17/22",interceptions:1,tackles:2,clearances:1},
+    {name:"야로슬라프 젤레니",pos:"MF",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:null,passes:"22/28",interceptions:0,tackles:0,clearances:5},
+    {name:"알렉산드르 소이카",pos:"MF",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:0.17,passes:"26/33",interceptions:2,tackles:1,clearances:0},
+    {name:"토마스 소우체크",pos:"MF",goals:0,assists:0,shots:1,shotsOnTarget:0,xg:0.28,xa:0.01,passes:"25/34",interceptions:1,tackles:0,clearances:1},
+    {name:"블라디미르 초우팔",pos:"MF",goals:0,assists:1,shots:0,shotsOnTarget:0,xg:null,xa:0.08,passes:"17/26",interceptions:1,tackles:0,clearances:3},
+    {name:"라디슬라프 크레이치",pos:"DF",goals:1,assists:0,shots:1,shotsOnTarget:1,xg:0.21,xa:1.00,passes:"31/45",interceptions:0,tackles:2,clearances:3},
+    {name:"로빈 흐라나치",pos:"DF",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:null,passes:"30/36",interceptions:0,tackles:0,clearances:1},
+    {name:"스테판 찰로우펙",pos:"DF",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:null,passes:"18/29",interceptions:1,tackles:0,clearances:3},
+    {name:"마테이 코바르",pos:"GK",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:null,passes:"9/26",interceptions:0,tackles:0,clearances:1},
+    {name:"아담 홀로제크",pos:"FW",goals:0,assists:0,shots:2,shotsOnTarget:1,xg:0.18,xa:0.03,passes:"4/4",interceptions:0,tackles:0,clearances:0},
+    {name:"얀 쿠흐타",pos:"FW",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:null,passes:"-",interceptions:0,tackles:0,clearances:0},
+    {name:"토마스 호리",pos:"FW",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:null,passes:"5/8",interceptions:0,tackles:0,clearances:0},
+    {name:"미할 사딜레크",pos:"MF",goals:0,assists:0,shots:2,shotsOnTarget:2,xg:0.15,xa:0.01,passes:"8/11",interceptions:0,tackles:0,clearances:0},
+    {name:"마르틴 히틸",pos:"FW",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:0.06,passes:"2/2",interceptions:0,tackles:0,clearances:0},
+  ],
+},
+"멕시코_남아프리카공화국": {
+  date:"2026-06-12",
+  team: {
+    home:{possession:61,shots:16,shotsOnTarget:4,passes:520,passesAcc:467,keyPasses:13,corners:3,freeKicks:11,offsides:1,saves:2,fouls:12,yellow:1,red:1,xg:1.46,xa:1.20},
+    away:{possession:40,shots:3,shotsOnTarget:2,passes:334,passesAcc:272,keyPasses:2,corners:1,freeKicks:11,offsides:1,saves:2,fouls:11,yellow:2,red:2,xg:0.07,xa:0.16},
+  },
+  home:[
+    {name:"라울 히메네스",pos:"FW",goals:1,assists:0,shots:4,shotsOnTarget:2,xg:0.84,xa:0.01,passes:"15/19",interceptions:0,tackles:1,clearances:1},
+    {name:"퀴뇨네스",pos:"MF",goals:1,assists:0,shots:5,shotsOnTarget:2,xg:0.37,xa:0.08,passes:"28/33",interceptions:0,tackles:0,clearances:0},
+    {name:"알바라도",pos:"MF",goals:0,assists:1,shots:0,shotsOnTarget:0,xg:null,xa:0.71,passes:"32/35",interceptions:0,tackles:1,clearances:0},
+    {name:"리라",pos:"MF",goals:0,assists:1,shots:0,shotsOnTarget:0,xg:null,xa:null,passes:"42/45",interceptions:1,tackles:2,clearances:1},
+    {name:"구티에레스",pos:"MF",goals:0,assists:0,shots:4,shotsOnTarget:0,xg:0.19,xa:0.17,passes:"20/23",interceptions:0,tackles:0,clearances:0},
+    {name:"루이스 차베스",pos:"MF",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:0.01,passes:"28/28",interceptions:0,tackles:1,clearances:1},
+    {name:"가야르도",pos:"DF",goals:0,assists:0,shots:2,shotsOnTarget:0,xg:0.04,xa:0.05,passes:"34/45",interceptions:3,tackles:0,clearances:3},
+    {name:"레예스",pos:"DF",goals:0,assists:0,shots:1,shotsOnTarget:0,xg:0.01,xa:0.03,passes:"38/42",interceptions:1,tackles:0,clearances:3},
+    {name:"몬테스",pos:"DF",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:0.01,passes:"60/65",interceptions:1,tackles:0,clearances:3},
+    {name:"바스케스",pos:"DF",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:null,passes:"75/81",interceptions:1,tackles:0,clearances:3},
+    {name:"랑헬",pos:"GK",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:null,passes:"26/30",interceptions:0,tackles:0,clearances:0},
+    {name:"곤살레스",pos:"FW",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:null,passes:"1/1",interceptions:0,tackles:0,clearances:1},
+    {name:"베가",pos:"FW",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:0.01,passes:"10/10",interceptions:0,tackles:0,clearances:0},
+    {name:"알바로 파달고",pos:"MF",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:0.01,passes:"30/34",interceptions:0,tackles:0,clearances:0},
+    {name:"모라",pos:"MF",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:0.09,passes:"14/14",interceptions:1,tackles:0,clearances:1},
+    {name:"알바레스",pos:"MF",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:0.01,passes:"14/15",interceptions:0,tackles:1,clearances:0},
+  ],
+  away:[
+    {name:"포스터",pos:"FW",goals:0,assists:0,shots:1,shotsOnTarget:0,xg:0.04,xa:null,passes:"1/5",interceptions:0,tackles:0,clearances:0},
+    {name:"모코에나",pos:"MF",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:0.01,passes:"39/42",interceptions:2,tackles:0,clearances:1},
+    {name:"아담스",pos:"MF",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:0.06,passes:"16/20",interceptions:0,tackles:0,clearances:0},
+    {name:"시툴레",pos:"MF",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:null,passes:"17/19",interceptions:1,tackles:0,clearances:0},
+    {name:"음바타",pos:"MF",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:null,passes:"4/7",interceptions:0,tackles:1,clearances:0},
+    {name:"즈와네",pos:"MF",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:null,passes:"5/7",interceptions:0,tackles:0,clearances:0},
+    {name:"무다우",pos:"DF",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:0.01,passes:"25/29",interceptions:1,tackles:3,clearances:2},
+    {name:"시비시",pos:"DF",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:null,passes:"41/50",interceptions:1,tackles:0,clearances:1},
+    {name:"오론",pos:"DF",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:null,passes:"45/49",interceptions:0,tackles:1,clearances:0},
+    {name:"음보카지",pos:"DF",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:0.01,xa:0.05,passes:"23/30",interceptions:1,tackles:1,clearances:4},
+    {name:"윌리엄스",pos:"GK",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:null,passes:"28/40",interceptions:1,tackles:0,clearances:0},
+    {name:"레이너스",pos:"FW",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:null,passes:"9/10",interceptions:0,tackles:0,clearances:0},
+    {name:"막고파",pos:"FW",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:0.01,passes:"2/5",interceptions:0,tackles:0,clearances:0},
+    {name:"아폴리스",pos:"FW",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:null,passes:"5/6",interceptions:0,tackles:0,clearances:0},
+    {name:"모디바",pos:"DF",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:0.02,xa:null,passes:"12/15",interceptions:0,tackles:0,clearances:0},
+  ],
+},
+"브라질_모로코": {
+  date:"2026-06-14",
+  team: {
+    home:{possession:51,shots:12,shotsOnTarget:5,passes:514,passesAcc:449,keyPasses:10,corners:6,freeKicks:14,offsides:0,saves:2,fouls:16,yellow:2,red:0,xg:1.26,xa:0.64},
+    away:{possession:49,shots:14,shotsOnTarget:3,passes:486,passesAcc:419,keyPasses:10,corners:2,freeKicks:16,offsides:1,saves:4,fouls:14,yellow:0,red:0,xg:1.37,xa:0.60},
+  },
+  home:[
+    {name:"치아구",pos:"FW",goals:0,assists:0,shots:2,shotsOnTarget:1,xg:0.66,xa:0.01,passes:"5/6",interceptions:0,tackles:1,clearances:0},
+    {name:"마테우스 쿠냐",pos:"FW",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:0.01,xa:0.01,passes:"5/9",interceptions:0,tackles:2,clearances:1},
+    {name:"루이스 엔히키",pos:"FW",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:0.04,xa:null,passes:"12/13",interceptions:0,tackles:0,clearances:0},
+    {name:"마르티넬리",pos:"FW",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:null,passes:"-",interceptions:0,tackles:0,clearances:0},
+    {name:"엔드릭",pos:"FW",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:null,passes:"-",interceptions:0,tackles:0,clearances:0},
+    {name:"하양",pos:"FW",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:null,passes:"-",interceptions:0,tackles:0,clearances:0},
+    {name:"비니시우스",pos:"MF",goals:1,assists:0,shots:1,shotsOnTarget:1,xg:0.08,xa:0.09,passes:"26/31",interceptions:0,tackles:0,clearances:3},
+    {name:"하피냐",pos:"MF",goals:0,assists:0,shots:2,shotsOnTarget:1,xg:0.15,xa:0.33,passes:"20/31",interceptions:0,tackles:0,clearances:0},
+    {name:"브루노 기마랑이스",pos:"MF",goals:0,assists:1,shots:1,shotsOnTarget:0,xg:0.01,xa:0.02,passes:"34/38",interceptions:1,tackles:1,clearances:1},
+    {name:"루카스 파케타",pos:"MF",goals:0,assists:0,shots:2,shotsOnTarget:1,xg:0.18,xa:0.03,passes:"31/39",interceptions:1,tackles:1,clearances:2},
+    {name:"카세미루",pos:"MF",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:0.05,passes:"17/18",interceptions:1,tackles:0,clearances:1},
+    {name:"파비뉴",pos:"MF",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:null,passes:"15/17",interceptions:0,tackles:1,clearances:3},
+    {name:"다닐루 산투스",pos:"MF",goals:0,assists:0,shots:2,shotsOnTarget:1,xg:0.09,xa:null,passes:"4/4",interceptions:0,tackles:0,clearances:0},
+    {name:"에데르송",pos:"MF",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:null,passes:"-",interceptions:0,tackles:0,clearances:0},
+    {name:"더글라스 산토스",pos:"DF",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:0.03,passes:"53/62",interceptions:1,tackles:5,clearances:1},
+    {name:"마갈량이스",pos:"DF",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:0.01,passes:"82/85",interceptions:0,tackles:0,clearances:1},
+    {name:"마르키뇨스",pos:"DF",goals:0,assists:0,shots:2,shotsOnTarget:0,xg:0.09,xa:0.09,passes:"75/79",interceptions:0,tackles:0,clearances:0},
+    {name:"다닐루",pos:"DF",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:0.01,passes:"32/38",interceptions:1,tackles:0,clearances:0},
+    {name:"이바녜스",pos:"DF",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:null,passes:"16/17",interceptions:1,tackles:2,clearances:2},
+    {name:"레오 페레이라",pos:"DF",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:null,passes:"-",interceptions:0,tackles:0,clearances:0},
+    {name:"브레메르",pos:"DF",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:null,passes:"-",interceptions:0,tackles:0,clearances:0},
+    {name:"알렉스 산드루",pos:"DF",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:null,passes:"-",interceptions:0,tackles:0,clearances:0},
+    {name:"알리송 베케르",pos:"GK",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:null,passes:"22/27",interceptions:0,tackles:0,clearances:1},
+    {name:"에데르송(GK)",pos:"GK",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:null,passes:"-",interceptions:0,tackles:0,clearances:0},
+    {name:"웨베르통",pos:"GK",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:null,passes:"-",interceptions:0,tackles:0,clearances:0},
+  ],
+  away:[
+    {name:"사이바리",pos:"FW",goals:1,assists:0,shots:3,shotsOnTarget:1,xg:0.71,xa:0.03,passes:"22/24",interceptions:0,tackles:0,clearances:2},
+    {name:"탈비",pos:"FW",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:null,passes:"9/9",interceptions:0,tackles:0,clearances:1},
+    {name:"아유브 아마이무니",pos:"FW",goals:0,assists:0,shots:1,shotsOnTarget:1,xg:0.14,xa:null,passes:"4/5",interceptions:0,tackles:0,clearances:1},
+    {name:"라히미",pos:"FW",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:null,passes:"2/2",interceptions:0,tackles:0,clearances:1},
+    {name:"스바이",pos:"FW",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:null,passes:"-",interceptions:0,tackles:0,clearances:0},
+    {name:"야신",pos:"FW",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:null,passes:"-",interceptions:0,tackles:0,clearances:0},
+    {name:"엘 카비",pos:"FW",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:null,passes:"-",interceptions:0,tackles:0,clearances:0},
+    {name:"부아디",pos:"MF",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:0.03,passes:"60/66",interceptions:0,tackles:1,clearances:1},
+    {name:"엘 아이나위",pos:"MF",goals:0,assists:0,shots:3,shotsOnTarget:0,xg:0.22,xa:0.02,passes:"47/53",interceptions:1,tackles:3,clearances:4},
+    {name:"엘 칸누스",pos:"MF",goals:0,assists:0,shots:1,shotsOnTarget:0,xg:0.02,xa:0.03,passes:"24/28",interceptions:0,tackles:3,clearances:2},
+    {name:"브라힘 디아스",pos:"MF",goals:0,assists:1,shots:3,shotsOnTarget:1,xg:0.10,xa:0.25,passes:"19/19",interceptions:0,tackles:0,clearances:0},
+    {name:"우나히",pos:"MF",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:0.03,passes:"33/36",interceptions:1,tackles:0,clearances:0},
+    {name:"엘 무라베",pos:"MF",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:0.02,passes:"24/26",interceptions:0,tackles:0,clearances:0},
+    {name:"암라바트",pos:"MF",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:null,passes:"-",interceptions:0,tackles:0,clearances:0},
+    {name:"디오프",pos:"DF",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:0.01,passes:"42/53",interceptions:1,tackles:0,clearances:0},
+    {name:"리아드",pos:"DF",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:null,passes:"34/40",interceptions:2,tackles:0,clearances:3},
+    {name:"하키미",pos:"DF",goals:0,assists:1,shots:0,shotsOnTarget:0,xg:0.18,xa:0.11,passes:"44/47",interceptions:0,tackles:6,clearances:3},
+    {name:"마즈라위",pos:"DF",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:0.05,passes:"28/32",interceptions:0,tackles:3,clearances:2},
+    {name:"살라-에딘",pos:"DF",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:null,passes:"10/11",interceptions:0,tackles:0,clearances:0},
+    {name:"벨람마리",pos:"DF",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:null,passes:"-",interceptions:0,tackles:0,clearances:0},
+    {name:"사아단",pos:"DF",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:null,passes:"-",interceptions:0,tackles:0,clearances:0},
+    {name:"엘 우아디",pos:"DF",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:null,passes:"-",interceptions:0,tackles:0,clearances:0},
+    {name:"할할",pos:"DF",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:null,passes:"-",interceptions:0,tackles:0,clearances:0},
+    {name:"부누",pos:"GK",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:null,passes:"17/35",interceptions:0,tackles:0,clearances:3},
+    {name:"무니르 엘 카주이",pos:"GK",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:null,passes:"-",interceptions:0,tackles:0,clearances:0},
+    {name:"타그나우티",pos:"GK",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:null,passes:"-",interceptions:0,tackles:0,clearances:0},
+  ],
+},
+};
+
+// 4~16번 경기는 별도 파일(static_match_stats_part2.js)에 이어서 정의되며,
+// 빌드 시 Object.assign(STATIC_MATCH_STATS, PART2)로 합쳐집니다.
+Object.assign(STATIC_MATCH_STATS, {
+"아이티_스코틀랜드": {
+  date:"2026-06-14",
+  team: {
+    home:{possession:54,shots:15,shotsOnTarget:2,passes:431,passesAcc:367,keyPasses:11,corners:4,freeKicks:21,offsides:3,saves:1,fouls:23,yellow:1,red:0,xg:1.05,xa:0.98},
+    away:{possession:46,shots:9,shotsOnTarget:2,passes:374,passesAcc:307,keyPasses:7,corners:3,freeKicks:22,offsides:1,saves:2,fouls:21,yellow:3,red:0,xg:1.05,xa:0.40},
+  },
+  home:[
+    {name:"피에로",pos:"FW",goals:0,assists:0,shots:3,shotsOnTarget:1,xg:0.65,xa:0.11,passes:"5/6",interceptions:0,tackles:0,clearances:2},
+    {name:"이시도르",pos:"FW",goals:0,assists:0,shots:2,shotsOnTarget:0,xg:0.04,xa:0.05,passes:"5/9",interceptions:0,tackles:0,clearances:3},
+    {name:"카지미르",pos:"FW",goals:0,assists:0,shots:1,shotsOnTarget:0,xg:0.01,xa:0.02,passes:"18/20",interceptions:0,tackles:0,clearances:1},
+    {name:"조제포",pos:"FW",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:0.04,passes:"2/4",interceptions:0,tackles:0,clearances:1},
+    {name:"포르투네",pos:"FW",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:null,passes:"3/3",interceptions:0,tackles:0,clearances:0},
+    {name:"나종",pos:"FW",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:null,passes:"-",interceptions:0,tackles:0,clearances:0},
+    {name:"에티엔",pos:"FW",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:null,passes:"-",interceptions:0,tackles:0,clearances:0},
+    {name:"벨가르드",pos:"MF",goals:0,assists:0,shots:3,shotsOnTarget:0,xg:0.16,xa:0.15,passes:"53/66",interceptions:1,tackles:1,clearances:1},
+    {name:"장자크",pos:"MF",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:0.02,passes:"44/53",interceptions:1,tackles:3,clearances:3},
+    {name:"프로비던스",pos:"MF",goals:0,assists:0,shots:3,shotsOnTarget:1,xg:0.11,xa:0.32,passes:"23/24",interceptions:0,tackles:0,clearances:0},
+    {name:"디드손",pos:"MF",goals:0,assists:0,shots:1,shotsOnTarget:0,xg:0.04,xa:0.09,passes:"6/8",interceptions:0,tackles:0,clearances:1},
+    {name:"세인트",pos:"MF",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:null,passes:"-",interceptions:0,tackles:0,clearances:0},
+    {name:"시몽",pos:"MF",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:null,passes:"-",interceptions:0,tackles:0,clearances:0},
+    {name:"우덴스 키 피에르",pos:"MF",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:null,passes:"-",interceptions:0,tackles:0,clearances:0},
+    {name:"델크루아",pos:"DF",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:0.01,passes:"66/66",interceptions:1,tackles:2,clearances:6},
+    {name:"아데",pos:"DF",goals:0,assists:0,shots:1,shotsOnTarget:0,xg:0.03,xa:0.06,passes:"55/63",interceptions:1,tackles:0,clearances:4},
+    {name:"아르쿠스",pos:"DF",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:0.09,passes:"32/35",interceptions:2,tackles:0,clearances:2},
+    {name:"엑스페리앙스",pos:"DF",goals:0,assists:0,shots:1,shotsOnTarget:0,xg:0.02,xa:0.02,passes:"35/43",interceptions:0,tackles:1,clearances:3},
+    {name:"뒤베른",pos:"DF",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:null,passes:"-",interceptions:0,tackles:0,clearances:0},
+    {name:"라크루아",pos:"DF",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:null,passes:"-",interceptions:0,tackles:0,clearances:0},
+    {name:"메투살라",pos:"DF",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:null,passes:"-",interceptions:0,tackles:0,clearances:0},
+    {name:"테르몽시",pos:"DF",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:null,passes:"-",interceptions:0,tackles:0,clearances:0},
+    {name:"포갱",pos:"DF",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:null,passes:"-",interceptions:0,tackles:0,clearances:0},
+    {name:"플라시드",pos:"GK",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:null,passes:"20/31",interceptions:0,tackles:0,clearances:0},
+    {name:"뒤베르제",pos:"GK",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:null,passes:"-",interceptions:0,tackles:0,clearances:0},
+    {name:"알렉산드르 피에르",pos:"GK",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:null,passes:"-",interceptions:0,tackles:0,clearances:0},
+  ],
+  away:[
+    {name:"샹클랜드",pos:"FW",goals:0,assists:0,shots:2,shotsOnTarget:0,xg:0.11,xa:0.01,passes:"7/16",interceptions:0,tackles:1,clearances:0},
+    {name:"애덤스",pos:"FW",goals:0,assists:0,shots:1,shotsOnTarget:1,xg:0.58,xa:0.01,passes:"8/11",interceptions:0,tackles:0,clearances:0},
+    {name:"다이크스",pos:"FW",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:null,passes:"3/6",interceptions:0,tackles:0,clearances:2},
+    {name:"커티스",pos:"FW",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:null,passes:"2/3",interceptions:0,tackles:0,clearances:0},
+    {name:"스튜어트",pos:"FW",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:null,passes:"-",interceptions:0,tackles:0,clearances:0},
+    {name:"허스트",pos:"FW",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:null,passes:"-",interceptions:0,tackles:0,clearances:0},
+    {name:"맥긴",pos:"MF",goals:1,assists:0,shots:2,shotsOnTarget:1,xg:0.23,xa:0.02,passes:"10/11",interceptions:0,tackles:0,clearances:0},
+    {name:"맥토미니",pos:"MF",goals:0,assists:0,shots:2,shotsOnTarget:0,xg:0.16,xa:null,passes:"27/29",interceptions:0,tackles:0,clearances:1},
+    {name:"퍼거슨",pos:"MF",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:0.02,passes:"40/44",interceptions:2,tackles:1,clearances:1},
+    {name:"도크",pos:"MF",goals:0,assists:0,shots:2,shotsOnTarget:0,xg:0.06,xa:0.08,passes:"19/23",interceptions:0,tackles:0,clearances:0},
+    {name:"크리스티",pos:"MF",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:null,passes:"3/5",interceptions:0,tackles:2,clearances:0},
+    {name:"매클린",pos:"MF",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:0.04,passes:"2/2",interceptions:1,tackles:0,clearances:1},
+    {name:"플레처",pos:"MF",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:null,passes:"-",interceptions:0,tackles:0,clearances:0},
+    {name:"로버트슨",pos:"DF",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:0.17,passes:"30/42",interceptions:1,tackles:0,clearances:3},
+    {name:"핸리",pos:"DF",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:0.02,passes:"46/50",interceptions:1,tackles:1,clearances:4},
+    {name:"헨드리",pos:"DF",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:null,passes:"51/56",interceptions:0,tackles:0,clearances:1},
+    {name:"히키",pos:"DF",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:0.02,passes:"31/35",interceptions:1,tackles:0,clearances:3},
+    {name:"패터슨",pos:"DF",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:null,passes:"3/4",interceptions:0,tackles:0,clearances:2},
+    {name:"랄스턴",pos:"DF",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:null,passes:"-",interceptions:0,tackles:0,clearances:0},
+    {name:"매케나",pos:"DF",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:null,passes:"-",interceptions:0,tackles:0,clearances:0},
+    {name:"수타",pos:"DF",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:null,passes:"-",interceptions:0,tackles:0,clearances:0},
+    {name:"티어니",pos:"DF",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:null,passes:"-",interceptions:0,tackles:0,clearances:0},
+    {name:"하이엄",pos:"DF",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:null,passes:"-",interceptions:0,tackles:0,clearances:0},
+    {name:"건",pos:"GK",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:null,passes:"25/37",interceptions:0,tackles:0,clearances:1},
+    {name:"고든",pos:"GK",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:null,passes:"-",interceptions:0,tackles:0,clearances:0},
+    {name:"켈리",pos:"GK",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:null,passes:"-",interceptions:0,tackles:0,clearances:0},
+  ],
+},
+"호주_튀르키예": {
+  date:"2026-06-14",
+  team: {
+    home:{possession:28,shots:9,shotsOnTarget:4,passes:271,passesAcc:201,keyPasses:8,corners:5,freeKicks:4,offsides:1,saves:8,fouls:12,yellow:0,red:0,xg:1.18,xa:0.35},
+    away:{possession:72,shots:30,shotsOnTarget:8,passes:704,passesAcc:635,keyPasses:20,corners:8,freeKicks:12,offsides:3,saves:2,fouls:4,yellow:1,red:0,xg:1.36,xa:1.44},
+  },
+  home:[
+    {name:"투레",pos:"FW",goals:0,assists:0,shots:1,shotsOnTarget:0,xg:0.05,xa:0.02,passes:"3/3",interceptions:0,tackles:0,clearances:2},
+    {name:"벨루필레이",pos:"FW",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:null,passes:"3/5",interceptions:0,tackles:0,clearances:0},
+    {name:"옝기",pos:"FW",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:null,passes:"2/4",interceptions:0,tackles:1,clearances:3},
+    {name:"렉키",pos:"FW",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:null,passes:"-",interceptions:0,tackles:0,clearances:0},
+    {name:"멧칼프",pos:"MF",goals:1,assists:0,shots:1,shotsOnTarget:1,xg:0.03,xa:0.10,passes:"9/15",interceptions:0,tackles:0,clearances:3},
+    {name:"이란쿤다",pos:"MF",goals:1,assists:0,shots:2,shotsOnTarget:2,xg:0.45,xa:null,passes:"5/7",interceptions:0,tackles:0,clearances:1},
+    {name:"오닐",pos:"MF",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:0.06,passes:"27/32",interceptions:0,tackles:0,clearances:5},
+    {name:"오콘 엥슬러",pos:"MF",goals:0,assists:1,shots:0,shotsOnTarget:0,xg:null,xa:0.01,passes:"29/36",interceptions:3,tackles:1,clearances:5},
+    {name:"어바인",pos:"MF",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:null,passes:"1/2",interceptions:0,tackles:0,clearances:3},
+    {name:"데블린",pos:"MF",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:null,passes:"-",interceptions:0,tackles:0,clearances:0},
+    {name:"마빌",pos:"MF",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:null,passes:"-",interceptions:0,tackles:0,clearances:0},
+    {name:"볼파토",pos:"MF",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:null,passes:"-",interceptions:0,tackles:0,clearances:0},
+    {name:"흐루스티치",pos:"MF",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:null,passes:"-",interceptions:0,tackles:0,clearances:0},
+    {name:"버지스",pos:"DF",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:null,passes:"37/41",interceptions:1,tackles:1,clearances:6},
+    {name:"수타",pos:"DF",goals:0,assists:0,shots:1,shotsOnTarget:1,xg:0.04,xa:null,passes:"14/23",interceptions:0,tackles:0,clearances:13},
+    {name:"치르카티",pos:"DF",goals:0,assists:0,shots:1,shotsOnTarget:0,xg:0.51,xa:0.01,passes:"21/26",interceptions:1,tackles:1,clearances:6},
+    {name:"보스",pos:"DF",goals:0,assists:0,shots:2,shotsOnTarget:0,xg:0.08,xa:0.02,passes:"21/23",interceptions:0,tackles:0,clearances:0},
+    {name:"이탈리아노",pos:"DF",goals:0,assists:0,shots:1,shotsOnTarget:0,xg:0.02,xa:0.08,passes:"12/16",interceptions:1,tackles:1,clearances:7},
+    {name:"게리아",pos:"DF",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:0.04,passes:"2/2",interceptions:1,tackles:0,clearances:2},
+    {name:"베히치",pos:"DF",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:null,passes:"1/1",interceptions:0,tackles:0,clearances:2},
+    {name:"데게넥",pos:"DF",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:null,passes:"-",interceptions:0,tackles:0,clearances:0},
+    {name:"트루인",pos:"DF",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:null,passes:"-",interceptions:0,tackles:0,clearances:0},
+    {name:"헤링턴",pos:"DF",goals:0,assists:3,shots:0,shotsOnTarget:0,xg:null,xa:null,passes:"-",interceptions:0,tackles:0,clearances:0},
+    {name:"비치",pos:"GK",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:null,passes:"14/35",interceptions:0,tackles:0,clearances:1},
+    {name:"라이언",pos:"GK",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:null,passes:"-",interceptions:0,tackles:0,clearances:0},
+    {name:"이쪼",pos:"GK",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:null,passes:"-",interceptions:0,tackles:0,clearances:0},
+  ],
+  away:[
+    {name:"아크튀르크올루",pos:"FW",goals:0,assists:0,shots:3,shotsOnTarget:1,xg:0.29,xa:0.04,passes:"6/11",interceptions:0,tackles:1,clearances:0},
+    {name:"이을디즈",pos:"FW",goals:0,assists:0,shots:6,shotsOnTarget:0,xg:0.23,xa:0.14,passes:"36/40",interceptions:1,tackles:0,clearances:2},
+    {name:"악균",pos:"FW",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:0.05,passes:"19/21",interceptions:0,tackles:0,clearances:0},
+    {name:"귈",pos:"FW",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:null,passes:"-",interceptions:0,tackles:0,clearances:0},
+    {name:"아이든",pos:"FW",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:null,passes:"-",interceptions:0,tackles:0,clearances:0},
+    {name:"퀼러",pos:"MF",goals:0,assists:0,shots:8,shotsOnTarget:3,xg:0.26,xa:0.27,passes:"68/73",interceptions:1,tackles:1,clearances:0},
+    {name:"찰하놀루",pos:"MF",goals:0,assists:0,shots:5,shotsOnTarget:2,xg:0.17,xa:0.37,passes:"93/105",interceptions:1,tackles:0,clearances:2},
+    {name:"욕세키",pos:"MF",goals:0,assists:0,shots:3,shotsOnTarget:0,xg:0.15,xa:0.04,passes:"54/57",interceptions:0,tackles:3,clearances:3},
+    {name:"쾨크취",pos:"MF",goals:0,assists:0,shots:1,shotsOnTarget:0,xg:0.07,xa:0.06,passes:"29/36",interceptions:0,tackles:0,clearances:1},
+    {name:"이을마즈",pos:"MF",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:0.01,passes:"12/17",interceptions:0,tackles:0,clearances:0},
+    {name:"외즈잔",pos:"MF",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:0.01,passes:"17/17",interceptions:0,tackles:0,clearances:0},
+    {name:"우준",pos:"MF",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:null,passes:"-",interceptions:0,tackles:0,clearances:0},
+    {name:"카흐베지",pos:"MF",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:null,passes:"-",interceptions:0,tackles:0,clearances:0},
+    {name:"데미랄",pos:"DF",goals:0,assists:0,shots:1,shotsOnTarget:0,xg:0.02,xa:0.13,passes:"57/62",interceptions:0,tackles:1,clearances:7},
+    {name:"바르닥치",pos:"DF",goals:0,assists:0,shots:1,shotsOnTarget:1,xg:0.03,xa:0.03,passes:"90/96",interceptions:1,tackles:2,clearances:6},
+    {name:"카디오글루",pos:"DF",goals:0,assists:0,shots:1,shotsOnTarget:0,xg:0.04,xa:0.20,passes:"92/102",interceptions:0,tackles:0,clearances:4},
+    {name:"첼리크",pos:"DF",goals:0,assists:0,shots:1,shotsOnTarget:1,xg:0.10,xa:0.08,passes:"30/33",interceptions:0,tackles:0,clearances:2},
+    {name:"뮐뒤르",pos:"DF",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:0.01,passes:"13/14",interceptions:0,tackles:0,clearances:0},
+    {name:"쇼윈쥐",pos:"DF",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:null,passes:"-",interceptions:0,tackles:0,clearances:0},
+    {name:"아이한",pos:"DF",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:null,passes:"-",interceptions:0,tackles:0,clearances:0},
+    {name:"아카이딘",pos:"DF",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:null,passes:"-",interceptions:0,tackles:0,clearances:0},
+    {name:"엘말르",pos:"DF",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:null,passes:"-",interceptions:0,tackles:0,clearances:0},
+    {name:"카박",pos:"DF",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:null,passes:"-",interceptions:0,tackles:0,clearances:0},
+    {name:"차크르",pos:"GK",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:null,passes:"19/20",interceptions:0,tackles:0,clearances:2},
+    {name:"귀노크",pos:"GK",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:null,passes:"-",interceptions:0,tackles:0,clearances:0},
+    {name:"바이은드르",pos:"GK",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:null,passes:"-",interceptions:0,tackles:0,clearances:0},
+  ],
+},
+});
+Object.assign(STATIC_MATCH_STATS, {
+"캐나다_보스니아": {
+  date:"2026-06-13",
+  team: {
+    home:{possession:61,shots:13,shotsOnTarget:4,passes:421,passesAcc:310,keyPasses:12,corners:9,freeKicks:20,offsides:1,saves:2,fouls:10,yellow:2,red:0,xg:1.23,xa:1.28},
+    away:{possession:39,shots:8,shotsOnTarget:3,passes:271,passesAcc:172,keyPasses:5,corners:4,freeKicks:10,offsides:0,saves:1,fouls:20,yellow:3,red:0,xg:0.96,xa:0.86},
+  },
+  home:[
+    {name:"래린",pos:"FW",goals:1,assists:0,shots:2,shotsOnTarget:1,xg:0.21,xa:null,passes:"-",interceptions:0,tackles:0,clearances:1},
+    {name:"타니 올루와세이",pos:"FW",goals:0,assists:0,shots:2,shotsOnTarget:1,xg:0.18,xa:null,passes:"6/20",interceptions:0,tackles:0,clearances:0},
+    {name:"조너선 데이비드",pos:"FW",goals:0,assists:0,shots:3,shotsOnTarget:1,xg:0.39,xa:null,passes:"8/14",interceptions:1,tackles:1,clearances:0},
+    {name:"사펠버그",pos:"FW",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:0.14,passes:"5/7",interceptions:0,tackles:1,clearances:0},
+    {name:"프로미스 데이비드",pos:"FW",goals:0,assists:1,shots:1,shotsOnTarget:0,xg:0.04,xa:0.05,passes:"1/3",interceptions:0,tackles:0,clearances:1},
+    {name:"넬슨",pos:"FW",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:null,passes:"-",interceptions:0,tackles:0,clearances:0},
+    {name:"코네",pos:"MF",goals:0,assists:0,shots:1,shotsOnTarget:0,xg:0.02,xa:0.06,passes:"50/59",interceptions:2,tackles:1,clearances:0},
+    {name:"유스타키오",pos:"MF",goals:0,assists:0,shots:1,shotsOnTarget:0,xg:0.02,xa:0.41,passes:"42/47",interceptions:0,tackles:0,clearances:1},
+    {name:"밀러",pos:"MF",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:0.08,passes:"21/28",interceptions:0,tackles:2,clearances:0},
+    {name:"뷰캐넌",pos:"MF",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:0.01,passes:"6/7",interceptions:0,tackles:0,clearances:0},
+    {name:"아메드",pos:"MF",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:0.02,passes:"10/18",interceptions:0,tackles:0,clearances:0},
+    {name:"오소리오",pos:"MF",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:0.01,passes:"4/5",interceptions:0,tackles:0,clearances:0},
+    {name:"네이선 살리바",pos:"MF",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:null,passes:"-",interceptions:0,tackles:0,clearances:0},
+    {name:"시구르",pos:"MF",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:null,passes:"-",interceptions:0,tackles:0,clearances:0},
+    {name:"초니에르",pos:"MF",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:null,passes:"-",interceptions:0,tackles:0,clearances:0},
+    {name:"드 푸제롤",pos:"DF",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:0.01,passes:"39/50",interceptions:0,tackles:2,clearances:8},
+    {name:"라레이아",pos:"DF",goals:0,assists:0,shots:1,shotsOnTarget:1,xg:0.26,xa:0.43,passes:"27/37",interceptions:0,tackles:4,clearances:0},
+    {name:"존스턴",pos:"DF",goals:0,assists:0,shots:1,shotsOnTarget:0,xg:0.06,xa:0.05,passes:"24/36",interceptions:0,tackles:1,clearances:4},
+    {name:"코넬리우스",pos:"DF",goals:0,assists:0,shots:1,shotsOnTarget:0,xg:0.06,xa:0.01,passes:"50/66",interceptions:1,tackles:2,clearances:4},
+    {name:"데이비스",pos:"DF",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:null,passes:"-",interceptions:0,tackles:0,clearances:0},
+    {name:"봄비토",pos:"DF",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:null,passes:"-",interceptions:0,tackles:0,clearances:0},
+    {name:"워터먼",pos:"DF",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:null,passes:"-",interceptions:0,tackles:0,clearances:0},
+    {name:"존스",pos:"DF",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:null,passes:"-",interceptions:0,tackles:0,clearances:0},
+    {name:"크레포",pos:"GK",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:null,passes:"17/24",interceptions:0,tackles:1,clearances:2},
+    {name:"굿맨",pos:"GK",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:null,passes:"-",interceptions:0,tackles:0,clearances:0},
+    {name:"세인트 클레어",pos:"GK",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:null,passes:"-",interceptions:0,tackles:0,clearances:0},
+  ],
+  away:[
+    {name:"루키치",pos:"FW",goals:1,assists:0,shots:3,shotsOnTarget:2,xg:0.69,xa:null,passes:"7/17",interceptions:0,tackles:1,clearances:3},
+    {name:"데미로비치",pos:"FW",goals:0,assists:0,shots:1,shotsOnTarget:1,xg:0.02,xa:null,passes:"12/17",interceptions:0,tackles:0,clearances:3},
+    {name:"바즈다르",pos:"FW",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:null,passes:"2/6",interceptions:0,tackles:0,clearances:1},
+    {name:"알라이베고비치",pos:"FW",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:null,passes:"5/5",interceptions:0,tackles:0,clearances:1},
+    {name:"제코",pos:"FW",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:null,passes:"-",interceptions:0,tackles:0,clearances:0},
+    {name:"타바코비치",pos:"FW",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:null,passes:"-",interceptions:0,tackles:0,clearances:0},
+    {name:"타히로비치",pos:"MF",goals:0,assists:0,shots:1,shotsOnTarget:0,xg:null,xa:0.02,passes:"17/24",interceptions:1,tackles:1,clearances:3},
+    {name:"메미치",pos:"MF",goals:0,assists:0,shots:1,shotsOnTarget:0,xg:0.05,xa:null,passes:"3/7",interceptions:0,tackles:0,clearances:4},
+    {name:"바즈락타레비치",pos:"MF",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:null,passes:"7/15",interceptions:2,tackles:0,clearances:3},
+    {name:"바시치",pos:"MF",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:0.29,passes:"17/21",interceptions:2,tackles:0,clearances:1},
+    {name:"기고비치",pos:"MF",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:0.01,passes:"12/16",interceptions:1,tackles:2,clearances:0},
+    {name:"슈니치",pos:"MF",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:null,passes:"10/14",interceptions:0,tackles:0,clearances:2},
+    {name:"부르니치",pos:"MF",goals:0,assists:0,shots:1,shotsOnTarget:0,xg:0.01,xa:0.01,passes:"2/2",interceptions:0,tackles:0,clearances:0},
+    {name:"마흐미치",pos:"MF",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:null,passes:"-",interceptions:0,tackles:0,clearances:0},
+    {name:"하지아흐메토비치",pos:"MF",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:null,passes:"-",interceptions:0,tackles:0,clearances:0},
+    {name:"데디치",pos:"DF",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:0.01,passes:"14/22",interceptions:0,tackles:1,clearances:7},
+    {name:"무하레모비치",pos:"DF",goals:0,assists:0,shots:1,shotsOnTarget:0,xg:0.18,xa:null,passes:"24/31",interceptions:2,tackles:1,clearances:21},
+    {name:"카티치",pos:"DF",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:null,passes:"14/23",interceptions:3,tackles:4,clearances:16},
+    {name:"콜라시나츠",pos:"DF",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:0.51,passes:"15/21",interceptions:0,tackles:2,clearances:7},
+    {name:"라델리치",pos:"DF",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:null,passes:"-",interceptions:0,tackles:0,clearances:0},
+    {name:"말리치",pos:"DF",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:null,passes:"-",interceptions:0,tackles:0,clearances:0},
+    {name:"무야키치",pos:"DF",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:null,passes:"-",interceptions:0,tackles:0,clearances:0},
+    {name:"하지카두니치",pos:"DF",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:null,passes:"-",interceptions:0,tackles:0,clearances:0},
+    {name:"바실리",pos:"GK",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:null,passes:"11/30",interceptions:0,tackles:0,clearances:1},
+    {name:"유르카스",pos:"GK",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:null,passes:"-",interceptions:0,tackles:0,clearances:0},
+    {name:"즐로미슬리치",pos:"GK",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:null,passes:"-",interceptions:0,tackles:0,clearances:0},
+  ],
+},
+"카타르_스위스": {
+  date:"2026-06-14",
+  team: {
+    home:{possession:32,shots:6,shotsOnTarget:3,passes:278,passesAcc:200,keyPasses:4,corners:3,freeKicks:11,offsides:0,saves:5,fouls:12,yellow:2,red:0,xg:0.60,xa:0.25},
+    away:{possession:68,shots:26,shotsOnTarget:7,passes:576,passesAcc:527,keyPasses:24,corners:10,freeKicks:12,offsides:0,saves:3,fouls:11,yellow:1,red:0,xg:3.20,xa:3.20},
+  },
+  home:[
+    {name:"아크람 아피프",pos:"FW",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:0.21,passes:"-",interceptions:0,tackles:0,clearances:0},
+    {name:"에드밀손 주니오르",pos:"FW",goals:0,assists:0,shots:2,shotsOnTarget:2,xg:0.39,xa:null,passes:"3/3",interceptions:1,tackles:0,clearances:0},
+    {name:"유수프 압두리사그",pos:"FW",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:null,passes:"0/1",interceptions:0,tackles:0,clearances:0},
+    {name:"아흐메드 알라엘딘",pos:"FW",goals:0,assists:0,shots:1,shotsOnTarget:1,xg:0.11,xa:null,passes:"-",interceptions:0,tackles:0,clearances:0},
+    {name:"하산 알 하이도스",pos:"FW",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:null,passes:"-",interceptions:0,tackles:0,clearances:0},
+    {name:"모하메드 문타리",pos:"FW",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:null,passes:"-",interceptions:0,tackles:0,clearances:0},
+    {name:"아흐메드 알 가네",pos:"FW",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:null,passes:"-",interceptions:0,tackles:0,clearances:0},
+    {name:"알모에즈 알리",pos:"FW",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:null,passes:"-",interceptions:0,tackles:0,clearances:0},
+    {name:"타흐신 잠시드",pos:"FW",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:null,passes:"-",interceptions:0,tackles:0,clearances:0},
+    {name:"이사 라예",pos:"MF",goals:0,assists:0,shots:1,shotsOnTarget:0,xg:0.08,xa:null,passes:"0/1",interceptions:0,tackles:0,clearances:4},
+    {name:"아심 마디보",pos:"MF",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:null,passes:"-",interceptions:0,tackles:1,clearances:0},
+    {name:"자셈 가베르",pos:"MF",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:null,passes:"2/2",interceptions:0,tackles:1,clearances:1},
+    {name:"부디아프",pos:"MF",goals:0,assists:0,shots:1,shotsOnTarget:0,xg:0.02,xa:null,passes:"-",interceptions:0,tackles:0,clearances:0},
+    {name:"아흐메드 파티",pos:"MF",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:0.01,passes:"-",interceptions:0,tackles:0,clearances:0},
+    {name:"모하메드 알 만나이",pos:"MF",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:null,passes:"-",interceptions:0,tackles:0,clearances:0},
+    {name:"압둘아지즈 하템",pos:"MF",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:null,passes:"-",interceptions:0,tackles:0,clearances:0},
+    {name:"부알렘",pos:"DF",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:null,passes:"-",interceptions:0,tackles:2,clearances:8},
+    {name:"페드루 미겔",pos:"DF",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:0.01,xa:null,passes:"-",interceptions:0,tackles:1,clearances:9},
+    {name:"호맘 아흐메드",pos:"DF",goals:0,assists:1,shots:0,shotsOnTarget:1,xg:0.01,xa:0.01,passes:"-",interceptions:1,tackles:0,clearances:1},
+    {name:"아유브 알 우위",pos:"DF",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:null,passes:"-",interceptions:1,tackles:3,clearances:0},
+    {name:"루카스 멘데스",pos:"DF",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:null,passes:"-",interceptions:0,tackles:0,clearances:0},
+    {name:"술탄 알 브레이크",pos:"DF",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:null,passes:"-",interceptions:0,tackles:0,clearances:0},
+    {name:"알 하시미 알 후세인",pos:"DF",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:null,passes:"-",interceptions:0,tackles:0,clearances:0},
+    {name:"마흐무드 아부나다",pos:"GK",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:null,passes:"-",interceptions:0,tackles:1,clearances:4},
+    {name:"메살 바르삼",pos:"GK",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:null,passes:"-",interceptions:0,tackles:0,clearances:0},
+    {name:"살라 자카리아",pos:"GK",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:null,passes:"-",interceptions:0,tackles:0,clearances:0},
+  ],
+  away:[
+    {name:"엠볼로",pos:"FW",goals:1,assists:1,shots:4,shotsOnTarget:1,xg:1.14,xa:0.84,passes:"-",interceptions:0,tackles:2,clearances:0},
+    {name:"바르가스",pos:"FW",goals:0,assists:0,shots:3,shotsOnTarget:1,xg:0.37,xa:0.58,passes:"-",interceptions:1,tackles:0,clearances:0},
+    {name:"은도이",pos:"FW",goals:0,assists:0,shots:6,shotsOnTarget:2,xg:0.40,xa:0.02,passes:"-",interceptions:1,tackles:0,clearances:0},
+    {name:"암두니",pos:"FW",goals:0,assists:0,shots:1,shotsOnTarget:0,xg:0.02,xa:0.01,passes:"-",interceptions:0,tackles:0,clearances:0},
+    {name:"오카포르",pos:"FW",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:null,passes:"-",interceptions:0,tackles:0,clearances:0},
+    {name:"이텐",pos:"FW",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:null,passes:"-",interceptions:0,tackles:0,clearances:0},
+    {name:"자카",pos:"MF",goals:0,assists:0,shots:2,shotsOnTarget:0,xg:0.05,xa:0.08,passes:"-",interceptions:0,tackles:0,clearances:0},
+    {name:"프로일러",pos:"MF",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:0.07,passes:"-",interceptions:2,tackles:0,clearances:0},
+    {name:"애비셔",pos:"MF",goals:0,assists:0,shots:1,shotsOnTarget:1,xg:0.24,xa:0.51,passes:"-",interceptions:1,tackles:0,clearances:2},
+    {name:"리더",pos:"MF",goals:0,assists:0,shots:1,shotsOnTarget:0,xg:0.05,xa:0.01,passes:"-",interceptions:0,tackles:0,clearances:0},
+    {name:"만잠비",pos:"MF",goals:0,assists:0,shots:2,shotsOnTarget:0,xg:0.06,xa:0.14,passes:"-",interceptions:0,tackles:1,clearances:0},
+    {name:"야사리",pos:"MF",goals:0,assists:0,shots:1,shotsOnTarget:0,xg:0.01,xa:null,passes:"-",interceptions:0,tackles:0,clearances:0},
+    {name:"소우",pos:"MF",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:null,passes:"-",interceptions:0,tackles:0,clearances:0},
+    {name:"파스나흐트",pos:"MF",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:null,passes:"-",interceptions:0,tackles:0,clearances:0},
+    {name:"아칸지",pos:"DF",goals:0,assists:0,shots:1,shotsOnTarget:1,xg:0.27,xa:0.15,passes:"-",interceptions:0,tackles:3,clearances:0},
+    {name:"엘베디",pos:"DF",goals:0,assists:0,shots:2,shotsOnTarget:0,xg:0.31,xa:0.06,passes:"-",interceptions:0,tackles:4,clearances:2},
+    {name:"자카리아",pos:"DF",goals:0,assists:0,shots:2,shotsOnTarget:1,xg:0.27,xa:0.15,passes:"-",interceptions:0,tackles:1,clearances:0},
+    {name:"로드리게스",pos:"DF",goals:0,assists:0,shots:2,shotsOnTarget:2,xg:null,xa:0.58,passes:"-",interceptions:0,tackles:0,clearances:0},
+    {name:"무하임",pos:"DF",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:null,passes:"-",interceptions:0,tackles:0,clearances:0},
+    {name:"비드머",pos:"DF",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:null,passes:"-",interceptions:0,tackles:0,clearances:0},
+    {name:"아멘다",pos:"DF",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:null,passes:"-",interceptions:0,tackles:0,clearances:0},
+    {name:"죄메르트",pos:"DF",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:null,passes:"-",interceptions:0,tackles:0,clearances:0},
+    {name:"하케즈",pos:"DF",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:null,passes:"-",interceptions:0,tackles:0,clearances:0},
+    {name:"코벨",pos:"GK",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:null,passes:"-",interceptions:0,tackles:0,clearances:1},
+    {name:"음보고",pos:"GK",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:null,passes:"-",interceptions:0,tackles:0,clearances:0},
+    {name:"켈러",pos:"GK",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:null,passes:"-",interceptions:0,tackles:0,clearances:0},
+  ],
+},
+});
+Object.assign(STATIC_MATCH_STATS, {
+"독일_퀴라소": {
+  date:"2026-06-15",
+  team: {
+    home:{possession:65,shots:26,shotsOnTarget:12,passes:637,passesAcc:554,keyPasses:21,corners:8,freeKicks:0,offsides:0,saves:1,fouls:18,yellow:0,red:0,xg:4.22,xa:3.48},
+    away:{possession:35,shots:8,shotsOnTarget:2,passes:343,passesAcc:282,keyPasses:6,corners:1,freeKicks:0,offsides:0,saves:4,fouls:11,yellow:0,red:0,xg:0.41,xa:0.28},
+  },
+  home:[
+    {name:"하베르츠",pos:"FW",goals:2,assists:1,shots:4,shotsOnTarget:2,xg:1.01,xa:0.26,passes:"-",interceptions:1,tackles:1,clearances:0},
+    {name:"운다브",pos:"FW",goals:1,assists:0,shots:2,shotsOnTarget:1,xg:0.50,xa:0.34,passes:"-",interceptions:0,tackles:0,clearances:0},
+    {name:"르웰링",pos:"FW",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:null,passes:"-",interceptions:0,tackles:0,clearances:0},
+    {name:"바이어",pos:"FW",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:null,passes:"-",interceptions:0,tackles:0,clearances:0},
+    {name:"볼테마데",pos:"FW",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:null,passes:"-",interceptions:0,tackles:0,clearances:0},
+    {name:"은메차",pos:"MF",goals:1,assists:0,shots:4,shotsOnTarget:3,xg:0.26,xa:0.08,passes:"-",interceptions:1,tackles:0,clearances:0},
+    {name:"무시알라",pos:"MF",goals:1,assists:0,shots:3,shotsOnTarget:1,xg:0.29,xa:0.08,passes:"-",interceptions:2,tackles:0,clearances:0},
+    {name:"비르츠",pos:"MF",goals:0,assists:1,shots:3,shotsOnTarget:0,xg:0.18,xa:0.46,passes:"-",interceptions:0,tackles:0,clearances:0},
+    {name:"사네",pos:"MF",goals:0,assists:0,shots:3,shotsOnTarget:0,xg:0.82,xa:0.13,passes:"-",interceptions:1,tackles:0,clearances:0},
+    {name:"파블로비치",pos:"MF",goals:0,assists:0,shots:3,shotsOnTarget:1,xg:0.40,xa:0.33,passes:"-",interceptions:6,tackles:0,clearances:0},
+    {name:"고레츠카",pos:"MF",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:0.04,passes:"-",interceptions:0,tackles:0,clearances:1},
+    {name:"그로스",pos:"MF",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:null,passes:"-",interceptions:0,tackles:0,clearances:0},
+    {name:"슈틸러",pos:"MF",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:null,passes:"-",interceptions:0,tackles:0,clearances:0},
+    {name:"아미리",pos:"MF",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:null,passes:"-",interceptions:0,tackles:0,clearances:0},
+    {name:"웨드라오고",pos:"MF",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:null,passes:"-",interceptions:0,tackles:0,clearances:0},
+    {name:"술로터벡",pos:"DF",goals:1,assists:0,shots:2,shotsOnTarget:2,xg:0.31,xa:0.04,passes:"-",interceptions:2,tackles:2,clearances:4},
+    {name:"브라운",pos:"DF",goals:1,assists:0,shots:1,shotsOnTarget:2,xg:0.42,xa:0.57,passes:"-",interceptions:1,tackles:2,clearances:0},
+    {name:"키미히",pos:"DF",goals:0,assists:2,shots:0,shotsOnTarget:0,xg:null,xa:0.83,passes:"-",interceptions:0,tackles:0,clearances:0},
+    {name:"타",pos:"DF",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:0.23,xa:null,passes:"-",interceptions:2,tackles:1,clearances:0},
+    {name:"라움",pos:"DF",goals:0,assists:0,shots:1,shotsOnTarget:1,xg:0.03,xa:0.07,passes:"-",interceptions:0,tackles:0,clearances:0},
+    {name:"뤼디거",pos:"DF",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:null,passes:"-",interceptions:0,tackles:0,clearances:1},
+    {name:"안톤",pos:"DF",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:null,passes:"-",interceptions:0,tackles:0,clearances:0},
+    {name:"티아우",pos:"DF",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:null,passes:"-",interceptions:0,tackles:0,clearances:0},
+    {name:"노이어",pos:"GK",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:null,passes:"-",interceptions:0,tackles:0,clearances:0},
+    {name:"뉘벨",pos:"GK",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:null,passes:"-",interceptions:0,tackles:0,clearances:0},
+    {name:"바우만",pos:"GK",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:null,passes:"-",interceptions:0,tackles:0,clearances:0},
+  ],
+  away:[
+    {name:"로카디아",pos:"FW",goals:0,assists:0,shots:1,shotsOnTarget:1,xg:0.03,xa:null,passes:"-",interceptions:0,tackles:0,clearances:0},
+    {name:"안토니세",pos:"FW",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:0.13,passes:"-",interceptions:0,tackles:0,clearances:0},
+    {name:"한센",pos:"FW",goals:0,assists:0,shots:1,shotsOnTarget:1,xg:0.03,xa:0.01,passes:"-",interceptions:0,tackles:2,clearances:0},
+    {name:"마가리타",pos:"FW",goals:0,assists:0,shots:1,shotsOnTarget:0,xg:0.04,xa:null,passes:"-",interceptions:0,tackles:0,clearances:0},
+    {name:"카스타네르",pos:"FW",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:null,passes:"-",interceptions:1,tackles:0,clearances:0},
+    {name:"고레",pos:"FW",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:null,passes:"-",interceptions:0,tackles:0,clearances:0},
+    {name:"쿠와스",pos:"FW",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:null,passes:"-",interceptions:0,tackles:0,clearances:0},
+    {name:"코메넨시아",pos:"MF",goals:1,assists:0,shots:2,shotsOnTarget:1,xg:0.09,xa:0.05,passes:"-",interceptions:1,tackles:2,clearances:0},
+    {name:"레안드로 바쿠나",pos:"MF",goals:0,assists:0,shots:2,shotsOnTarget:0,xg:0.19,xa:0.01,passes:"-",interceptions:1,tackles:3,clearances:0},
+    {name:"주니유 바쿠나",pos:"MF",goals:0,assists:0,shots:1,shotsOnTarget:0,xg:0.02,xa:0.02,passes:"-",interceptions:0,tackles:2,clearances:1},
+    {name:"총",pos:"MF",goals:0,assists:0,shots:1,shotsOnTarget:0,xg:0.05,xa:0.01,passes:"-",interceptions:0,tackles:1,clearances:0},
+    {name:"노슬린",pos:"MF",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:null,passes:"-",interceptions:0,tackles:0,clearances:0},
+    {name:"로에메라토",pos:"MF",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:null,passes:"-",interceptions:0,tackles:0,clearances:0},
+    {name:"마르타",pos:"MF",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:null,passes:"-",interceptions:0,tackles:0,clearances:0},
+    {name:"펠리다",pos:"MF",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:null,passes:"-",interceptions:0,tackles:0,clearances:0},
+    {name:"바주르",pos:"DF",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:null,passes:"-",interceptions:0,tackles:2,clearances:5},
+    {name:"오비스포",pos:"DF",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:null,passes:"-",interceptions:0,tackles:0,clearances:3},
+    {name:"폰빌",pos:"DF",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:null,passes:"-",interceptions:0,tackles:1,clearances:2},
+    {name:"플로라누스",pos:"DF",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:0.01,xa:null,passes:"-",interceptions:0,tackles:1,clearances:3},
+    {name:"가리",pos:"DF",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:null,passes:"-",interceptions:0,tackles:0,clearances:0},
+    {name:"반 에이마",pos:"DF",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:null,passes:"-",interceptions:0,tackles:0,clearances:0},
+    {name:"브레넷",pos:"DF",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:null,passes:"-",interceptions:0,tackles:0,clearances:0},
+    {name:"삼보",pos:"DF",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:null,passes:"-",interceptions:0,tackles:0,clearances:0},
+    {name:"룸",pos:"GK",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:null,passes:"-",interceptions:0,tackles:0,clearances:3},
+    {name:"도른부슈",pos:"GK",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:null,passes:"-",interceptions:0,tackles:0,clearances:0},
+    {name:"보닥",pos:"GK",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:null,passes:"-",interceptions:0,tackles:0,clearances:0},
+  ],
+},
+"네덜란드_일본": {
+  date:"2026-06-15",
+  team: {
+    home:{possession:60,shots:10,shotsOnTarget:6,passes:524,passesAcc:463,keyPasses:10,corners:5,freeKicks:0,offsides:0,saves:1,fouls:7,yellow:3,red:0,xg:0.78,xa:1.29},
+    away:{possession:40,shots:10,shotsOnTarget:3,passes:341,passesAcc:286,keyPasses:10,corners:4,freeKicks:0,offsides:0,saves:4,fouls:7,yellow:0,red:0,xg:0.59,xa:0.58},
+  },
+  home:[
+    {name:"서머빌",pos:"FW",goals:1,assists:0,shots:1,shotsOnTarget:1,xg:0.02,xa:0.25,passes:"-",interceptions:0,tackles:1,clearances:1},
+    {name:"각포",pos:"FW",goals:0,assists:0,shots:2,shotsOnTarget:1,xg:0.20,xa:0.13,passes:"-",interceptions:0,tackles:0,clearances:0},
+    {name:"말런",pos:"FW",goals:0,assists:0,shots:2,shotsOnTarget:2,xg:0.21,xa:null,passes:"-",interceptions:0,tackles:0,clearances:0},
+    {name:"데파이",pos:"FW",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:0.12,passes:"-",interceptions:1,tackles:0,clearances:1},
+    {name:"브로베이",pos:"FW",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:null,passes:"-",interceptions:0,tackles:1,clearances:0},
+    {name:"랑",pos:"FW",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:null,passes:"-",interceptions:0,tackles:0,clearances:0},
+    {name:"베호르스트",pos:"FW",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:null,passes:"-",interceptions:0,tackles:0,clearances:0},
+    {name:"클라위버르트",pos:"FW",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:null,passes:"-",interceptions:0,tackles:0,clearances:0},
+    {name:"더 용",pos:"MF",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:0.04,passes:"-",interceptions:0,tackles:2,clearances:2},
+    {name:"흐라벤베르흐",pos:"MF",goals:0,assists:2,shots:0,shotsOnTarget:0,xg:0.10,xa:null,passes:"-",interceptions:0,tackles:0,clearances:1},
+    {name:"라인더르스",pos:"MF",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:0.13,passes:"-",interceptions:0,tackles:0,clearances:0},
+    {name:"코프메이너르스",pos:"MF",goals:0,assists:0,shots:2,shotsOnTarget:0,xg:0.16,xa:0.01,passes:"-",interceptions:0,tackles:1,clearances:1},
+    {name:"퀸턴 팀버르",pos:"MF",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:0.22,xa:null,passes:"-",interceptions:0,tackles:0,clearances:2},
+    {name:"더 론",pos:"MF",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:null,passes:"-",interceptions:0,tackles:0,clearances:0},
+    {name:"위버",pos:"MF",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:null,passes:"-",interceptions:0,tackles:0,clearances:0},
+    {name:"틸",pos:"MF",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:null,passes:"-",interceptions:0,tackles:0,clearances:0},
+    {name:"반 다이크",pos:"DF",goals:1,assists:0,shots:1,shotsOnTarget:1,xg:0.06,xa:0.03,passes:"-",interceptions:0,tackles:1,clearances:8},
+    {name:"덤프리스",pos:"DF",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:0.17,passes:"-",interceptions:0,tackles:0,clearances:0},
+    {name:"반 헤케",pos:"DF",goals:0,assists:0,shots:1,shotsOnTarget:1,xg:0.12,xa:0.06,passes:"-",interceptions:0,tackles:0,clearances:5},
+    {name:"판 더 펜",pos:"DF",goals:0,assists:0,shots:1,shotsOnTarget:0,xg:0.02,xa:0.03,passes:"-",interceptions:2,tackles:4,clearances:1},
+    {name:"아케",pos:"DF",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:null,passes:"-",interceptions:0,tackles:0,clearances:0},
+    {name:"하토",pos:"DF",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:null,passes:"-",interceptions:0,tackles:0,clearances:0},
+    {name:"헤르트루이다",pos:"DF",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:null,passes:"-",interceptions:0,tackles:0,clearances:0},
+    {name:"페르브뤼헨",pos:"GK",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:null,passes:"-",interceptions:0,tackles:0,clearances:0},
+    {name:"루에프스",pos:"GK",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:null,passes:"-",interceptions:0,tackles:0,clearances:0},
+    {name:"플레컨",pos:"GK",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:null,passes:"-",interceptions:0,tackles:0,clearances:0},
+  ],
+  away:[
+    {name:"우에다",pos:"FW",goals:0,assists:0,shots:1,shotsOnTarget:0,xg:0.10,xa:null,passes:"-",interceptions:0,tackles:1,clearances:1},
+    {name:"이토 준야",pos:"FW",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:0.09,passes:"-",interceptions:0,tackles:0,clearances:0},
+    {name:"오가와",pos:"FW",goals:0,assists:1,shots:2,shotsOnTarget:0,xg:0.05,xa:null,passes:"-",interceptions:0,tackles:0,clearances:0},
+    {name:"시오가이",pos:"FW",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:null,passes:"-",interceptions:0,tackles:0,clearances:0},
+    {name:"고토",pos:"FW",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:null,passes:"-",interceptions:0,tackles:0,clearances:0},
+    {name:"마치노",pos:"FW",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:null,passes:"-",interceptions:0,tackles:0,clearances:0},
+    {name:"나카무라",pos:"MF",goals:1,assists:0,shots:3,shotsOnTarget:1,xg:0.08,xa:0.04,passes:"-",interceptions:2,tackles:2,clearances:0},
+    {name:"카마다",pos:"MF",goals:1,assists:0,shots:1,shotsOnTarget:1,xg:0.14,xa:0.12,passes:"-",interceptions:0,tackles:1,clearances:0},
+    {name:"사노",pos:"MF",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:0.01,passes:"-",interceptions:0,tackles:0,clearances:0},
+    {name:"도안",pos:"MF",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:0.10,xa:null,passes:"-",interceptions:1,tackles:3,clearances:0},
+    {name:"쿠보",pos:"MF",goals:0,assists:0,shots:1,shotsOnTarget:1,xg:0.03,xa:0.03,passes:"-",interceptions:0,tackles:1,clearances:0},
+    {name:"마에다",pos:"MF",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:0.11,xa:null,passes:"-",interceptions:0,tackles:3,clearances:0},
+    {name:"다나카",pos:"MF",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:null,passes:"-",interceptions:0,tackles:0,clearances:0},
+    {name:"스즈키 유이토",pos:"MF",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:null,passes:"-",interceptions:0,tackles:0,clearances:0},
+    {name:"다니구치",pos:"DF",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:0.01,xa:null,passes:"-",interceptions:0,tackles:0,clearances:9},
+    {name:"이토 히로키",pos:"DF",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:0.03,xa:0.01,passes:"-",interceptions:0,tackles:0,clearances:5},
+    {name:"와타나베",pos:"DF",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:0.02,xa:null,passes:"-",interceptions:0,tackles:0,clearances:6},
+    {name:"스가와라",pos:"DF",goals:0,assists:0,shots:1,shotsOnTarget:1,xg:0.16,xa:0.03,passes:"-",interceptions:0,tackles:1,clearances:1},
+    {name:"토미야스",pos:"DF",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:0.01,xa:null,passes:"-",interceptions:0,tackles:1,clearances:1},
+    {name:"나가토모 유토",pos:"DF",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:null,passes:"-",interceptions:0,tackles:0,clearances:0},
+    {name:"세코",pos:"DF",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:null,passes:"-",interceptions:0,tackles:0,clearances:0},
+    {name:"스즈키 준노스케",pos:"DF",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:null,passes:"-",interceptions:0,tackles:0,clearances:0},
+    {name:"이타쿠라",pos:"DF",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:null,passes:"-",interceptions:0,tackles:0,clearances:0},
+    {name:"스즈키 자이온",pos:"GK",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:null,passes:"-",interceptions:0,tackles:0,clearances:0},
+    {name:"오사코",pos:"GK",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:null,passes:"-",interceptions:0,tackles:0,clearances:0},
+    {name:"하야카와",pos:"GK",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:null,passes:"-",interceptions:0,tackles:0,clearances:0},
+  ],
+},
+});
+Object.assign(STATIC_MATCH_STATS, {
+"코트디부아르_에콰도르": {
+  date:"2026-06-15",
+  team: {
+    home:{possession:48,shots:15,shotsOnTarget:4,passes:470,passesAcc:397,keyPasses:12,corners:3,freeKicks:0,offsides:0,saves:1,fouls:10,yellow:3,red:0,xg:1.52,xa:0.96},
+    away:{possession:52,shots:12,shotsOnTarget:1,passes:492,passesAcc:419,keyPasses:9,corners:5,freeKicks:0,offsides:0,saves:3,fouls:13,yellow:1,red:0,xg:1.01,xa:1.28},
+  },
+  home:[
+    {name:"디알로",pos:"FW",goals:1,assists:0,shots:2,shotsOnTarget:2,xg:0.19,xa:0.15,passes:"-",interceptions:0,tackles:0,clearances:0},
+    {name:"페페",pos:"FW",goals:0,assists:0,shots:2,shotsOnTarget:0,xg:0.22,xa:0.06,passes:"-",interceptions:0,tackles:0,clearances:0},
+    {name:"와히",pos:"FW",goals:0,assists:0,shots:2,shotsOnTarget:1,xg:0.49,xa:0.02,passes:"-",interceptions:0,tackles:0,clearances:0},
+    {name:"보니",pos:"FW",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:null,passes:"-",interceptions:0,tackles:0,clearances:1},
+    {name:"게상",pos:"FW",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:null,passes:"-",interceptions:0,tackles:0,clearances:0},
+    {name:"디아키테",pos:"FW",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:null,passes:"-",interceptions:0,tackles:0,clearances:0},
+    {name:"아딩라",pos:"FW",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:null,passes:"-",interceptions:0,tackles:0,clearances:0},
+    {name:"디오망데",pos:"MF",goals:0,assists:0,shots:2,shotsOnTarget:0,xg:0.20,xa:0.34,passes:"-",interceptions:0,tackles:0,clearances:0},
+    {name:"케시에",pos:"MF",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:0.05,passes:"-",interceptions:0,tackles:3,clearances:1},
+    {name:"세코 포파나",pos:"MF",goals:0,assists:0,shots:4,shotsOnTarget:1,xg:0.27,xa:0.12,passes:"-",interceptions:1,tackles:1,clearances:1},
+    {name:"투레",pos:"MF",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:0.01,passes:"-",interceptions:0,tackles:0,clearances:0},
+    {name:"상가레",pos:"MF",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:null,passes:"-",interceptions:0,tackles:0,clearances:1},
+    {name:"이나오 울라이",pos:"MF",goals:0,assists:0,shots:1,shotsOnTarget:0,xg:0.03,xa:0.01,passes:"-",interceptions:1,tackles:1,clearances:1},
+    {name:"귀아공",pos:"MF",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:null,passes:"-",interceptions:0,tackles:0,clearances:0},
+    {name:"세리",pos:"MF",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:null,passes:"-",interceptions:0,tackles:0,clearances:0},
+    {name:"싱고",pos:"DF",goals:0,assists:1,shots:1,shotsOnTarget:0,xg:0.05,xa:0.06,passes:"-",interceptions:0,tackles:3,clearances:0},
+    {name:"아그바두",pos:"DF",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:0.01,xa:null,passes:"-",interceptions:0,tackles:0,clearances:9},
+    {name:"코난",pos:"DF",goals:0,assists:0,shots:1,shotsOnTarget:0,xg:0.06,xa:0.03,passes:"-",interceptions:0,tackles:3,clearances:0},
+    {name:"두에",pos:"DF",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:0.09,xa:null,passes:"-",interceptions:3,tackles:3,clearances:1},
+    {name:"코수누",pos:"DF",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:null,passes:"-",interceptions:1,tackles:1,clearances:0},
+    {name:"오페리",pos:"DF",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:null,passes:"-",interceptions:0,tackles:0,clearances:0},
+    {name:"우스만 디오망데",pos:"DF",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:null,passes:"-",interceptions:0,tackles:0,clearances:0},
+    {name:"은디카",pos:"DF",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:null,passes:"-",interceptions:0,tackles:0,clearances:0},
+    {name:"야히아 포파나",pos:"GK",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:null,passes:"-",interceptions:0,tackles:0,clearances:1},
+    {name:"라퐁",pos:"GK",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:null,passes:"-",interceptions:0,tackles:0,clearances:0},
+    {name:"코네",pos:"GK",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:null,passes:"-",interceptions:0,tackles:0,clearances:0},
+  ],
+  away:[
+    {name:"플라타",pos:"FW",goals:0,assists:0,shots:1,shotsOnTarget:1,xg:0.05,xa:0.19,passes:"-",interceptions:0,tackles:0,clearances:0},
+    {name:"에네르 발렌시아",pos:"FW",goals:0,assists:0,shots:1,shotsOnTarget:0,xg:0.03,xa:0.03,passes:"-",interceptions:0,tackles:0,clearances:0},
+    {name:"앙굴로",pos:"FW",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:0.03,passes:"-",interceptions:0,tackles:0,clearances:0},
+    {name:"로드리게스",pos:"FW",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:0.01,passes:"-",interceptions:0,tackles:0,clearances:0},
+    {name:"앤서니 발렌시아",pos:"FW",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:null,passes:"-",interceptions:0,tackles:0,clearances:0},
+    {name:"제레미 아레발로",pos:"FW",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:null,passes:"-",interceptions:0,tackles:0,clearances:0},
+    {name:"조르디 카이세도",pos:"FW",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:null,passes:"-",interceptions:0,tackles:0,clearances:0},
+    {name:"모이세스 카이세도",pos:"MF",goals:0,assists:0,shots:1,shotsOnTarget:0,xg:0.02,xa:0.44,passes:"-",interceptions:0,tackles:0,clearances:0},
+    {name:"비테",pos:"MF",goals:0,assists:0,shots:1,shotsOnTarget:0,xg:0.05,xa:0.49,passes:"-",interceptions:0,tackles:1,clearances:0},
+    {name:"예보아",pos:"MF",goals:0,assists:0,shots:3,shotsOnTarget:0,xg:0.14,xa:0.04,passes:"-",interceptions:0,tackles:0,clearances:0},
+    {name:"민다",pos:"MF",goals:0,assists:0,shots:2,shotsOnTarget:0,xg:0.37,xa:0.01,passes:"-",interceptions:0,tackles:1,clearances:0},
+    {name:"알시바르",pos:"MF",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:null,passes:"-",interceptions:0,tackles:0,clearances:0},
+    {name:"카스티요",pos:"MF",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:null,passes:"-",interceptions:0,tackles:0,clearances:0},
+    {name:"파에스",pos:"MF",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:null,passes:"-",interceptions:0,tackles:0,clearances:0},
+    {name:"오르도네스",pos:"DF",goals:0,assists:0,shots:2,shotsOnTarget:0,xg:0.20,xa:0.01,passes:"-",interceptions:0,tackles:0,clearances:8},
+    {name:"잉카피에",pos:"DF",goals:0,assists:0,shots:1,shotsOnTarget:0,xg:0.16,xa:0.01,passes:"-",interceptions:0,tackles:1,clearances:0},
+    {name:"파초",pos:"DF",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:null,passes:"-",interceptions:0,tackles:0,clearances:5},
+    {name:"프랑코",pos:"DF",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:0.01,xa:null,passes:"-",interceptions:0,tackles:1,clearances:0},
+    {name:"포로소",pos:"DF",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:null,passes:"-",interceptions:0,tackles:0,clearances:1},
+    {name:"프레시아도",pos:"DF",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:null,passes:"-",interceptions:0,tackles:1,clearances:0},
+    {name:"메디나",pos:"DF",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:null,passes:"-",interceptions:0,tackles:0,clearances:0},
+    {name:"에스투피냔",pos:"DF",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:null,passes:"-",interceptions:0,tackles:0,clearances:0},
+    {name:"토레스",pos:"DF",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:null,passes:"-",interceptions:0,tackles:0,clearances:0},
+    {name:"갈린데스",pos:"GK",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:null,passes:"-",interceptions:0,tackles:0,clearances:0},
+    {name:"모이세스 라미레스",pos:"GK",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:null,passes:"-",interceptions:0,tackles:0,clearances:0},
+    {name:"바예",pos:"GK",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:null,passes:"-",interceptions:0,tackles:0,clearances:0},
+  ],
+},
+"스웨덴_튀니지": {
+  date:"2026-06-15",
+  team: {
+    home:{possession:49,shots:13,shotsOnTarget:7,passes:356,passesAcc:278,keyPasses:11,corners:4,freeKicks:8,offsides:1,saves:1,fouls:10,yellow:0,red:0,xg:1.33,xa:0.56},
+    away:{possession:51,shots:6,shotsOnTarget:2,passes:371,passesAcc:292,keyPasses:4,corners:2,freeKicks:8,offsides:0,saves:1,fouls:8,yellow:1,red:0,xg:0.28,xa:0.45},
+  },
+  home:[
+    {name:"요케레스",pos:"FW",goals:1,assists:0,shots:5,shotsOnTarget:2,xg:0.63,xa:0.11,passes:"-",interceptions:0,tackles:0,clearances:0},
+    {name:"이삭",pos:"FW",goals:1,assists:0,shots:2,shotsOnTarget:3,xg:0.32,xa:0.04,passes:"-",interceptions:0,tackles:1,clearances:0},
+    {name:"엘랑가",pos:"FW",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:null,passes:"-",interceptions:0,tackles:0,clearances:0},
+    {name:"구스타프 닐손",pos:"FW",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:null,passes:"-",interceptions:0,tackles:0,clearances:0},
+    {name:"아야리",pos:"MF",goals:2,assists:0,shots:0,shotsOnTarget:2,xg:0.07,xa:0.12,passes:"-",interceptions:1,tackles:2,clearances:0},
+    {name:"스반베리",pos:"MF",goals:1,assists:0,shots:1,shotsOnTarget:1,xg:0.09,xa:null,passes:"-",interceptions:0,tackles:0,clearances:0},
+    {name:"베른하르트손",pos:"MF",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:0.01,passes:"-",interceptions:0,tackles:0,clearances:3},
+    {name:"칼스트룀",pos:"MF",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:null,passes:"-",interceptions:1,tackles:2,clearances:0},
+    {name:"구드문드손",pos:"MF",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:0.07,xa:null,passes:"-",interceptions:2,tackles:5,clearances:0},
+    {name:"뉴그렌",pos:"MF",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:0.14,xa:null,passes:"-",interceptions:1,tackles:0,clearances:0},
+    {name:"베리발",pos:"MF",goals:0,assists:0,shots:1,shotsOnTarget:1,xg:0.09,xa:null,passes:"-",interceptions:1,tackles:1,clearances:0},
+    {name:"스트라우드",pos:"MF",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:0.02,passes:"-",interceptions:0,tackles:0,clearances:0},
+    {name:"세마",pos:"MF",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:null,passes:"-",interceptions:0,tackles:0,clearances:0},
+    {name:"알리",pos:"MF",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:null,passes:"-",interceptions:0,tackles:0,clearances:0},
+    {name:"제넬리",pos:"MF",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:null,passes:"-",interceptions:0,tackles:0,clearances:0},
+    {name:"헤르만 요한손",pos:"MF",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:null,passes:"-",interceptions:0,tackles:0,clearances:0},
+    {name:"라게르비엘케",pos:"DF",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:0.04,xa:null,passes:"-",interceptions:0,tackles:0,clearances:3},
+    {name:"린델뢰프",pos:"DF",goals:0,assists:0,shots:1,shotsOnTarget:0,xg:0.14,xa:0.01,passes:"-",interceptions:0,tackles:2,clearances:3},
+    {name:"히엔",pos:"DF",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:null,passes:"-",interceptions:0,tackles:1,clearances:4},
+    {name:"스벤손",pos:"DF",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:null,passes:"-",interceptions:0,tackles:0,clearances:0},
+    {name:"스미스",pos:"DF",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:null,passes:"-",interceptions:0,tackles:0,clearances:0},
+    {name:"스타펠트",pos:"DF",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:null,passes:"-",interceptions:0,tackles:0,clearances:0},
+    {name:"에크달",pos:"DF",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:null,passes:"-",interceptions:0,tackles:0,clearances:0},
+    {name:"노르드펠트",pos:"GK",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:null,passes:"-",interceptions:0,tackles:0,clearances:0},
+    {name:"비델 세테르스트룀",pos:"GK",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:null,passes:"-",interceptions:0,tackles:0,clearances:0},
+    {name:"빅토르 요한손",pos:"GK",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:null,passes:"-",interceptions:0,tackles:0,clearances:0},
+  ],
+  away:[
+    {name:"벤 슬리만",pos:"FW",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:0.02,passes:"-",interceptions:0,tackles:0,clearances:0},
+    {name:"사드",pos:"FW",goals:0,assists:0,shots:1,shotsOnTarget:0,xg:0.03,xa:0.14,passes:"-",interceptions:0,tackles:0,clearances:0},
+    {name:"투넥티",pos:"FW",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:0.01,passes:"-",interceptions:0,tackles:1,clearances:0},
+    {name:"가르비",pos:"FW",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:null,passes:"-",interceptions:0,tackles:0,clearances:0},
+    {name:"샤우앗",pos:"FW",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:null,passes:"-",interceptions:0,tackles:0,clearances:0},
+    {name:"마스투리",pos:"FW",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:null,passes:"-",interceptions:0,tackles:0,clearances:0},
+    {name:"아야리(튀니지)",pos:"FW",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:null,passes:"-",interceptions:0,tackles:0,clearances:0},
+    {name:"엘루미",pos:"FW",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:null,passes:"-",interceptions:0,tackles:0,clearances:0},
+    {name:"메브리",pos:"MF",goals:0,assists:1,shots:1,shotsOnTarget:0,xg:0.03,xa:0.19,passes:"-",interceptions:0,tackles:0,clearances:0},
+    {name:"케디라",pos:"MF",goals:0,assists:0,shots:1,shotsOnTarget:0,xg:0.02,xa:null,passes:"-",interceptions:1,tackles:0,clearances:1},
+    {name:"스키리",pos:"MF",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:0.02,passes:"-",interceptions:0,tackles:0,clearances:0},
+    {name:"마흐무드",pos:"MF",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:null,passes:"-",interceptions:0,tackles:0,clearances:0},
+    {name:"아슈리",pos:"MF",goals:0,assists:0,shots:1,shotsOnTarget:0,xg:0.01,xa:null,passes:"-",interceptions:0,tackles:1,clearances:0},
+    {name:"벤 오우아네스",pos:"MF",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:null,passes:"-",interceptions:0,tackles:0,clearances:0},
+    {name:"레킥",pos:"DF",goals:1,assists:0,shots:1,shotsOnTarget:0,xg:0.03,xa:0.02,passes:"-",interceptions:0,tackles:2,clearances:0},
+    {name:"벤 하미다",pos:"DF",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:0.03,xa:null,passes:"-",interceptions:0,tackles:4,clearances:0},
+    {name:"압디",pos:"DF",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:0.01,xa:null,passes:"-",interceptions:0,tackles:3,clearances:0},
+    {name:"탈비(튀니지)",pos:"DF",goals:0,assists:0,shots:1,shotsOnTarget:0,xg:null,xa:0.15,passes:"-",interceptions:0,tackles:5,clearances:0},
+    {name:"발레리",pos:"DF",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:0.02,xa:null,passes:"-",interceptions:0,tackles:3,clearances:0},
+    {name:"네파티",pos:"DF",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:null,passes:"-",interceptions:0,tackles:0,clearances:0},
+    {name:"브론",pos:"DF",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:null,passes:"-",interceptions:0,tackles:0,clearances:0},
+    {name:"아루스",pos:"DF",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:null,passes:"-",interceptions:0,tackles:0,clearances:0},
+    {name:"치하우이",pos:"DF",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:null,passes:"-",interceptions:0,tackles:0,clearances:0},
+    {name:"삼흐크",pos:"GK",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:null,passes:"-",interceptions:0,tackles:0,clearances:2},
+    {name:"다흐멘",pos:"GK",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:null,passes:"-",interceptions:0,tackles:0,clearances:0},
+    {name:"벤 하산",pos:"GK",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:null,passes:"-",interceptions:0,tackles:0,clearances:0},
+  ],
+},
+});
+Object.assign(STATIC_MATCH_STATS, {
+"미국_파라과이": {
+  date:"2026-06-13",
+  team: {
+    home:{possession:65,shots:16,shotsOnTarget:6,passes:598,passesAcc:509,keyPasses:12,corners:3,freeKicks:16,offsides:2,saves:0,fouls:13,yellow:1,red:0,xg:1.42,xa:1.19},
+    away:{possession:35,shots:9,shotsOnTarget:1,passes:319,passesAcc:232,keyPasses:7,corners:1,freeKicks:13,offsides:1,saves:3,fouls:17,yellow:5,red:0,xg:0.54,xa:0.26},
+  },
+  home:[
+    {name:"발로건",pos:"FW",goals:2,assists:0,shots:5,shotsOnTarget:3,xg:0.47,xa:0.08,passes:"10/15",interceptions:0,tackles:0,clearances:0},
+    {name:"웨아",pos:"FW",goals:0,assists:0,shots:2,shotsOnTarget:0,xg:0.05,xa:0.02,passes:"13/14",interceptions:0,tackles:0,clearances:2},
+    {name:"페피",pos:"FW",goals:0,assists:0,shots:1,shotsOnTarget:0,xg:0.11,xa:0.08,passes:"3/3",interceptions:0,tackles:0,clearances:1},
+    {name:"라이트",pos:"FW",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:null,passes:"-",interceptions:0,tackles:0,clearances:0},
+    {name:"젠데야스",pos:"FW",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:null,passes:"-",interceptions:0,tackles:0,clearances:0},
+    {name:"레이나",pos:"MF",goals:1,assists:0,shots:1,shotsOnTarget:1,xg:0.08,xa:null,passes:"8/9",interceptions:0,tackles:0,clearances:1},
+    {name:"맥케니",pos:"MF",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:0.33,passes:"40/51",interceptions:0,tackles:0,clearances:0},
+    {name:"아담스",pos:"MF",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:0.02,passes:"52/59",interceptions:2,tackles:2,clearances:2},
+    {name:"틸만",pos:"MF",goals:0,assists:1,shots:5,shotsOnTarget:2,xg:0.65,xa:0.22,passes:"30/38",interceptions:1,tackles:0,clearances:1},
+    {name:"데스트",pos:"MF",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:0.06,passes:"27/34",interceptions:1,tackles:0,clearances:0},
+    {name:"버홀터",pos:"MF",goals:0,assists:0,shots:1,shotsOnTarget:0,xg:0.02,xa:0.12,passes:"20/28",interceptions:1,tackles:0,clearances:0},
+    {name:"풀리식",pos:"MF",goals:0,assists:1,shots:0,shotsOnTarget:0,xg:null,xa:0.12,passes:"18/22",interceptions:0,tackles:1,clearances:1},
+    {name:"롤단",pos:"MF",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:null,passes:"-",interceptions:0,tackles:0,clearances:0},
+    {name:"아프스텐",pos:"MF",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:null,passes:"-",interceptions:0,tackles:0,clearances:0},
+    {name:"애런슨",pos:"MF",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:null,passes:"-",interceptions:0,tackles:0,clearances:0},
+    {name:"로빈슨",pos:"DF",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:0.06,xa:null,passes:"44/57",interceptions:0,tackles:1,clearances:1},
+    {name:"리차즈",pos:"DF",goals:0,assists:0,shots:1,shotsOnTarget:0,xg:0.04,xa:0.04,passes:"84/84",interceptions:1,tackles:1,clearances:3},
+    {name:"림",pos:"DF",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:0.03,xa:null,passes:"84/90",interceptions:1,tackles:1,clearances:0},
+    {name:"프리먼",pos:"DF",goals:0,assists:1,shots:0,shotsOnTarget:0,xg:0.04,xa:null,passes:"64/74",interceptions:2,tackles:1,clearances:1},
+    {name:"로빈슨2",pos:"DF",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:null,passes:"-",interceptions:0,tackles:0,clearances:0},
+    {name:"맥켄지",pos:"DF",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:null,passes:"-",interceptions:0,tackles:0,clearances:0},
+    {name:"스캘리",pos:"DF",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:null,passes:"-",interceptions:0,tackles:0,clearances:0},
+    {name:"트러스티",pos:"DF",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:null,passes:"-",interceptions:0,tackles:0,clearances:0},
+    {name:"프리즈",pos:"GK",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:null,passes:"12/20",interceptions:0,tackles:0,clearances:0},
+    {name:"크리스 브래디",pos:"GK",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:null,passes:"-",interceptions:0,tackles:0,clearances:0},
+    {name:"터너",pos:"GK",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:null,passes:"-",interceptions:0,tackles:0,clearances:0},
+  ],
+  away:[
+    {name:"엔시소",pos:"FW",goals:0,assists:1,shots:2,shotsOnTarget:0,xg:0.05,xa:0.09,passes:"20/25",interceptions:0,tackles:2,clearances:0},
+    {name:"사나브리아",pos:"FW",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:0.10,passes:"5/9",interceptions:0,tackles:0,clearances:1},
+    {name:"아르세",pos:"FW",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:0.01,passes:"4/6",interceptions:0,tackles:1,clearances:1},
+    {name:"소사",pos:"FW",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:null,passes:"3/3",interceptions:0,tackles:0,clearances:0},
+    {name:"아발로스",pos:"FW",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:null,passes:"-",interceptions:0,tackles:0,clearances:0},
+    {name:"카바예로",pos:"FW",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:null,passes:"-",interceptions:0,tackles:0,clearances:0},
+    {name:"피타",pos:"FW",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:null,passes:"-",interceptions:0,tackles:0,clearances:0},
+    {name:"마우리시우",pos:"MF",goals:1,assists:0,shots:1,shotsOnTarget:1,xg:0.22,xa:null,passes:"14/20",interceptions:0,tackles:2,clearances:0},
+    {name:"쿠바스",pos:"MF",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:null,passes:"25/31",interceptions:0,tackles:4,clearances:5},
+    {name:"디에고 고메스",pos:"MF",goals:0,assists:0,shots:4,shotsOnTarget:0,xg:0.20,xa:null,passes:"22/27",interceptions:2,tackles:1,clearances:1},
+    {name:"알미론",pos:"MF",goals:0,assists:0,shots:2,shotsOnTarget:0,xg:0.07,xa:0.02,passes:"18/23",interceptions:1,tackles:1,clearances:1},
+    {name:"보바디야",pos:"MF",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:null,passes:"9/10",interceptions:2,tackles:0,clearances:0},
+    {name:"카쿠 로메로",pos:"MF",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:null,passes:"6/9",interceptions:0,tackles:0,clearances:1},
+    {name:"갈라르사",pos:"MF",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:null,passes:"-",interceptions:0,tackles:0,clearances:0},
+    {name:"오헤다",pos:"MF",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:null,passes:"-",interceptions:0,tackles:0,clearances:0},
+    {name:"구스타보 고메스",pos:"DF",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:null,passes:"23/29",interceptions:1,tackles:0,clearances:2},
+    {name:"알데레테",pos:"DF",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:0.03,xa:null,passes:"21/32",interceptions:2,tackles:0,clearances:1},
+    {name:"알론소",pos:"DF",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:null,passes:"25/36",interceptions:2,tackles:2,clearances:1},
+    {name:"카세레스",pos:"DF",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:null,passes:"19/31",interceptions:0,tackles:3,clearances:3},
+    {name:"벨라스케스",pos:"DF",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:null,passes:"3/3",interceptions:0,tackles:0,clearances:0},
+    {name:"마이다나",pos:"DF",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:null,passes:"-",interceptions:0,tackles:0,clearances:0},
+    {name:"발부에나",pos:"DF",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:null,passes:"-",interceptions:0,tackles:0,clearances:0},
+    {name:"카날레",pos:"DF",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:null,passes:"-",interceptions:0,tackles:0,clearances:0},
+    {name:"길",pos:"GK",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:null,passes:"15/25",interceptions:0,tackles:0,clearances:0},
+    {name:"올베이라",pos:"GK",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:null,passes:"-",interceptions:0,tackles:0,clearances:0},
+    {name:"페르난데스",pos:"GK",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:null,passes:"-",interceptions:0,tackles:0,clearances:0},
+  ],
+},
+"스페인_카보베르데": {
+  date:"2026-06-16",
+  team: {
+    home:{possession:74,shots:27,shotsOnTarget:7,passes:800,passesAcc:734,keyPasses:19,corners:11,freeKicks:1,offsides:2,saves:1,fouls:10,yellow:1,red:0,xg:2.10,xa:3.62},
+    away:{possession:26,shots:6,shotsOnTarget:1,passes:278,passesAcc:205,keyPasses:4,corners:1,freeKicks:9,offsides:3,saves:7,fouls:1,yellow:1,red:0,xg:0.20,xa:0.12},
+  },
+  home:[
+    {name:"미켈 오야르사발",pos:"FW",goals:0,assists:0,shots:5,shotsOnTarget:1,xg:0.50,xa:0.05,passes:"8/10",interceptions:0,tackles:1,clearances:0},
+    {name:"페란 토레스",pos:"FW",goals:0,assists:0,shots:4,shotsOnTarget:1,xg:0.66,xa:0.12,passes:"26/34",interceptions:0,tackles:0,clearances:2},
+    {name:"가비",pos:"FW",goals:0,assists:0,shots:1,shotsOnTarget:0,xg:0.05,xa:0.03,passes:"26/30",interceptions:1,tackles:2,clearances:2},
+    {name:"라민 야말",pos:"FW",goals:0,assists:0,shots:2,shotsOnTarget:0,xg:0.04,xa:0.19,passes:"16/19",interceptions:0,tackles:0,clearances:1},
+    {name:"니코 윌리엄스",pos:"FW",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:null,passes:"1/2",interceptions:0,tackles:0,clearances:0},
+    {name:"보르하 이글레시아스",pos:"FW",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:null,passes:"-",interceptions:0,tackles:0,clearances:0},
+    {name:"빅토르 무뇨스",pos:"FW",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:null,passes:"-",interceptions:0,tackles:0,clearances:0},
+    {name:"페드리",pos:"MF",goals:0,assists:0,shots:2,shotsOnTarget:1,xg:0.10,xa:1.23,passes:"86/99",interceptions:1,tackles:2,clearances:1},
+    {name:"로드리",pos:"MF",goals:0,assists:0,shots:2,shotsOnTarget:0,xg:0.11,xa:0.44,passes:"116/126",interceptions:0,tackles:1,clearances:1},
+    {name:"파비안 루이스",pos:"MF",goals:0,assists:0,shots:5,shotsOnTarget:1,xg:0.31,xa:0.08,passes:"70/75",interceptions:1,tackles:2,clearances:0},
+    {name:"미켈 메리노",pos:"MF",goals:0,assists:0,shots:1,shotsOnTarget:1,xg:0.10,xa:0.16,passes:"8/10",interceptions:0,tackles:1,clearances:1},
+    {name:"다니 올모",pos:"MF",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:0.12,passes:"8/10",interceptions:0,tackles:0,clearances:0},
+    {name:"마르틴 수비멘디",pos:"MF",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:null,passes:"-",interceptions:0,tackles:0,clearances:0},
+    {name:"알렉스 바에나",pos:"MF",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:null,passes:"-",interceptions:0,tackles:0,clearances:0},
+    {name:"예레미 피노",pos:"MF",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:null,passes:"-",interceptions:0,tackles:0,clearances:0},
+    {name:"라포르테",pos:"DF",goals:0,assists:0,shots:2,shotsOnTarget:1,xg:0.07,xa:0.13,passes:"106/110",interceptions:2,tackles:0,clearances:3},
+    {name:"마르코스 요렌테",pos:"DF",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:0.54,passes:"76/82",interceptions:0,tackles:2,clearances:2},
+    {name:"마르크 쿠쿠레야",pos:"DF",goals:0,assists:0,shots:2,shotsOnTarget:1,xg:0.12,xa:0.44,passes:"63/67",interceptions:0,tackles:1,clearances:0},
+    {name:"파우 쿠바르시",pos:"DF",goals:0,assists:0,shots:1,shotsOnTarget:0,xg:0.03,xa:0.09,passes:"107/109",interceptions:1,tackles:0,clearances:1},
+    {name:"마르크 푸빌",pos:"DF",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:null,passes:"-",interceptions:0,tackles:0,clearances:0},
+    {name:"알레한드로 그리말도",pos:"DF",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:null,passes:"-",interceptions:0,tackles:0,clearances:0},
+    {name:"에릭 가르시아",pos:"DF",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:null,passes:"-",interceptions:0,tackles:0,clearances:0},
+    {name:"페드로 포로",pos:"DF",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:null,passes:"-",interceptions:0,tackles:0,clearances:0},
+    {name:"우나이 시몬",pos:"GK",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:null,passes:"17/17",interceptions:0,tackles:0,clearances:0},
+    {name:"라야",pos:"GK",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:null,passes:"-",interceptions:0,tackles:0,clearances:0},
+    {name:"조안 가르시아",pos:"GK",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:null,passes:"-",interceptions:0,tackles:0,clearances:0},
+  ],
+  away:[
+    {name:"다일론 리브라멘토",pos:"FW",goals:0,assists:0,shots:1,shotsOnTarget:0,xg:0.01,xa:null,passes:"3/4",interceptions:0,tackles:0,clearances:0},
+    {name:"누노 다 코스타",pos:"FW",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:null,passes:"3/6",interceptions:0,tackles:1,clearances:0},
+    {name:"윌리",pos:"FW",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:null,passes:"6/9",interceptions:1,tackles:0,clearances:0},
+    {name:"개리 호드리게스",pos:"FW",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:null,passes:"-",interceptions:0,tackles:0,clearances:0},
+    {name:"엘리우 바렐라",pos:"FW",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:null,passes:"-",interceptions:0,tackles:0,clearances:0},
+    {name:"질송 벤시몰",pos:"FW",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:null,passes:"-",interceptions:0,tackles:0,clearances:0},
+    {name:"라이언 멘데스",pos:"MF",goals:0,assists:0,shots:1,shotsOnTarget:0,xg:0.02,xa:null,passes:"13/18",interceptions:0,tackles:1,clearances:3},
+    {name:"케빈 피나",pos:"MF",goals:0,assists:0,shots:1,shotsOnTarget:0,xg:0.02,xa:null,passes:"12/20",interceptions:1,tackles:1,clearances:4},
+    {name:"자미로 몬테이로",pos:"MF",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:null,passes:"16/21",interceptions:2,tackles:3,clearances:2},
+    {name:"라로스 두아르테",pos:"MF",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:null,passes:"6/7",interceptions:0,tackles:0,clearances:0},
+    {name:"조반 카브랄",pos:"MF",goals:0,assists:0,shots:1,shotsOnTarget:0,xg:0.01,xa:null,passes:"10/13",interceptions:1,tackles:2,clearances:1},
+    {name:"데로이 두아르테",pos:"MF",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:null,passes:"6/8",interceptions:1,tackles:0,clearances:3},
+    {name:"주앙 파울루",pos:"MF",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:null,passes:"0/3",interceptions:2,tackles:0,clearances:2},
+    {name:"텔모 아르칸주",pos:"MF",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:0.10,passes:"2/2",interceptions:0,tackles:0,clearances:0},
+    {name:"야닉 세메도",pos:"MF",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:null,passes:"-",interceptions:0,tackles:0,clearances:0},
+    {name:"디네이 보르제스",pos:"DF",goals:0,assists:0,shots:1,shotsOnTarget:1,xg:0.13,xa:null,passes:"32/40",interceptions:2,tackles:2,clearances:8},
+    {name:"스티븐 모레이라",pos:"DF",goals:0,assists:0,shots:1,shotsOnTarget:0,xg:0.01,xa:null,passes:"22/27",interceptions:1,tackles:0,clearances:4},
+    {name:"피코 로페스",pos:"DF",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:null,passes:"31/41",interceptions:2,tackles:0,clearances:11},
+    {name:"시드니 카브랄",pos:"DF",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:null,passes:"14/17",interceptions:2,tackles:1,clearances:5},
+    {name:"로강 코스타",pos:"DF",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:null,passes:"-",interceptions:0,tackles:0,clearances:0},
+    {name:"바그너 피나",pos:"DF",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:null,passes:"-",interceptions:0,tackles:0,clearances:0},
+    {name:"스토피라",pos:"DF",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:null,passes:"-",interceptions:0,tackles:0,clearances:0},
+    {name:"켈빈 피레스",pos:"DF",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:null,passes:"-",interceptions:0,tackles:0,clearances:0},
+    {name:"보지냐",pos:"GK",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:null,passes:"29/42",interceptions:0,tackles:0,clearances:1},
+    {name:"도스 산토스",pos:"GK",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:null,passes:"-",interceptions:0,tackles:0,clearances:0},
+    {name:"마르시오 로사",pos:"GK",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:null,passes:"-",interceptions:0,tackles:0,clearances:0},
+  ],
+},
+});
+Object.assign(STATIC_MATCH_STATS, {
+"벨기에_이집트": {
+  date:"2026-06-16",
+  team: {
+    home:{possession:54,shots:15,shotsOnTarget:3,passes:455,passesAcc:391,keyPasses:13,corners:2,freeKicks:15,offsides:0,saves:2,fouls:15,yellow:2,red:0,xg:1.35,xa:1.90},
+    away:{possession:46,shots:14,shotsOnTarget:3,passes:398,passesAcc:323,keyPasses:10,corners:7,freeKicks:14,offsides:1,saves:3,fouls:15,yellow:2,red:0,xg:1.08,xa:0.40},
+  },
+  home:[
+    {name:"데 케텔라에르",pos:"FW",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:0.24,passes:"21/26",interceptions:3,tackles:1,clearances:0},
+    {name:"루카쿠",pos:"FW",goals:0,assists:0,shots:2,shotsOnTarget:0,xg:0.26,xa:0.02,passes:"6/6",interceptions:0,tackles:0,clearances:0},
+    {name:"페르난데스 파르도",pos:"FW",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:0.04,passes:"2/3",interceptions:0,tackles:0,clearances:0},
+    {name:"디에구 모레이라",pos:"FW",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:null,passes:"-",interceptions:0,tackles:0,clearances:0},
+    {name:"루케바키오",pos:"FW",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:null,passes:"-",interceptions:0,tackles:0,clearances:0},
+    {name:"살레마키어스",pos:"FW",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:null,passes:"-",interceptions:0,tackles:0,clearances:0},
+    {name:"트로사르",pos:"MF",goals:0,assists:0,shots:3,shotsOnTarget:0,xg:0.20,xa:0.15,passes:"30/35",interceptions:0,tackles:0,clearances:0},
+    {name:"틸레만스",pos:"MF",goals:0,assists:0,shots:2,shotsOnTarget:0,xg:0.05,xa:0.45,passes:"36/43",interceptions:0,tackles:1,clearances:1},
+    {name:"더 브라위너",pos:"MF",goals:0,assists:1,shots:4,shotsOnTarget:1,xg:0.27,xa:0.12,passes:"30/37",interceptions:0,tackles:0,clearances:0},
+    {name:"도쿠",pos:"MF",goals:0,assists:0,shots:1,shotsOnTarget:0,xg:0.17,xa:0.09,passes:"19/24",interceptions:1,tackles:0,clearances:1},
+    {name:"오나나",pos:"MF",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:0.23,passes:"31/36",interceptions:1,tackles:0,clearances:1},
+    {name:"라스킨",pos:"MF",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:0.18,passes:"14/22",interceptions:0,tackles:1,clearances:0},
+    {name:"파나컨",pos:"MF",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:0.01,passes:"5/5",interceptions:0,tackles:0,clearances:0},
+    {name:"비첼",pos:"MF",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:null,passes:"-",interceptions:0,tackles:0,clearances:0},
+    {name:"메쉴레",pos:"DF",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:0.33,xa:null,passes:"56/58",interceptions:1,tackles:2,clearances:2},
+    {name:"뫼니에",pos:"DF",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:0.07,xa:null,passes:"34/42",interceptions:0,tackles:1,clearances:5},
+    {name:"응고이",pos:"DF",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:null,passes:"69/71",interceptions:3,tackles:0,clearances:2},
+    {name:"카스타뉴",pos:"DF",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:null,passes:"22/26",interceptions:0,tackles:4,clearances:1},
+    {name:"더 카위퍼르",pos:"DF",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:null,passes:"7/10",interceptions:1,tackles:1,clearances:2},
+    {name:"더 빈터르",pos:"DF",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:null,passes:"-",interceptions:0,tackles:0,clearances:0},
+    {name:"세이스",pos:"DF",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:null,passes:"-",interceptions:0,tackles:0,clearances:0},
+    {name:"테아테",pos:"DF",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:null,passes:"-",interceptions:0,tackles:0,clearances:0},
+    {name:"쿠르투아",pos:"GK",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:null,passes:"9/11",interceptions:0,tackles:0,clearances:3},
+    {name:"라멘스",pos:"GK",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:null,passes:"-",interceptions:0,tackles:0,clearances:0},
+    {name:"펜더스",pos:"GK",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:null,passes:"-",interceptions:0,tackles:0,clearances:0},
+  ],
+  away:[
+    {name:"오마르 마르무시",pos:"FW",goals:0,assists:0,shots:5,shotsOnTarget:0,xg:0.49,xa:0.04,passes:"12/14",interceptions:1,tackles:1,clearances:2},
+    {name:"함자 압델카림",pos:"FW",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:null,passes:"2/5",interceptions:0,tackles:0,clearances:0},
+    {name:"이브라힘 아델",pos:"FW",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:0.01,passes:"4/5",interceptions:0,tackles:0,clearances:0},
+    {name:"트레제게",pos:"FW",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:null,passes:"-",interceptions:0,tackles:0,clearances:0},
+    {name:"하이셈 하산",pos:"FW",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:null,passes:"-",interceptions:0,tackles:0,clearances:0},
+    {name:"에맘 아슈르",pos:"MF",goals:1,assists:0,shots:2,shotsOnTarget:1,xg:0.22,xa:0.02,passes:"19/29",interceptions:1,tackles:1,clearances:0},
+    {name:"마르완 아티아",pos:"MF",goals:0,assists:0,shots:1,shotsOnTarget:0,xg:0.03,xa:0.01,passes:"40/50",interceptions:1,tackles:1,clearances:3},
+    {name:"모하나드 라신",pos:"MF",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:0.01,passes:"25/30",interceptions:3,tackles:6,clearances:2},
+    {name:"모스타파 지코",pos:"MF",goals:0,assists:0,shots:2,shotsOnTarget:1,xg:0.16,xa:0.01,passes:"15/20",interceptions:1,tackles:0,clearances:0},
+    {name:"모하메드 살라",pos:"MF",goals:0,assists:1,shots:1,shotsOnTarget:1,xg:0.14,xa:0.05,passes:"17/18",interceptions:0,tackles:0,clearances:2},
+    {name:"지조",pos:"MF",goals:0,assists:0,shots:1,shotsOnTarget:0,xg:0.02,xa:0.01,passes:"6/7",interceptions:0,tackles:0,clearances:1},
+    {name:"나빌 에마드 둥가",pos:"MF",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:null,passes:"-",interceptions:0,tackles:0,clearances:0},
+    {name:"마흐무드 사베르",pos:"MF",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:null,passes:"-",interceptions:0,tackles:0,clearances:0},
+    {name:"모하메드 하니",pos:"DF",goals:0,assists:0,shots:2,shotsOnTarget:0,xg:0.05,xa:0.02,passes:"25/32",interceptions:1,tackles:5,clearances:1},
+    {name:"야세르 이브라힘",pos:"DF",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:0.04,passes:"48/53",interceptions:1,tackles:1,clearances:0},
+    {name:"아흐메드 파투흐",pos:"DF",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:0.15,passes:"30/38",interceptions:1,tackles:2,clearances:2},
+    {name:"함디 파트히",pos:"DF",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:0.01,passes:"34/39",interceptions:2,tackles:0,clearances:2},
+    {name:"라미 라비아",pos:"DF",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:null,passes:"19/21",interceptions:3,tackles:0,clearances:0},
+    {name:"카림 하페즈",pos:"DF",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:0.01,passes:"6/7",interceptions:0,tackles:0,clearances:0},
+    {name:"모하메드 압델모넴",pos:"DF",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:null,passes:"-",interceptions:0,tackles:0,clearances:0},
+    {name:"타렉 알라",pos:"DF",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:null,passes:"-",interceptions:0,tackles:0,clearances:0},
+    {name:"호삼 압델마기드",pos:"DF",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:null,passes:"-",interceptions:0,tackles:0,clearances:0},
+    {name:"모스타파 쇼베이르",pos:"GK",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:null,passes:"21/30",interceptions:1,tackles:0,clearances:1},
+    {name:"모하메드 알라",pos:"GK",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:null,passes:"-",interceptions:0,tackles:0,clearances:0},
+    {name:"모하메드 엘 셰나위",pos:"GK",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:null,passes:"-",interceptions:0,tackles:0,clearances:0},
+    {name:"엘 마흐디 솔리만",pos:"GK",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:null,passes:"-",interceptions:0,tackles:0,clearances:0},
+  ],
+},
+"사우디아라비아_우루과이": {
+  date:"2026-06-16",
+  team: {
+    home:{possession:33,shots:7,shotsOnTarget:3,passes:322,passesAcc:236,keyPasses:1,corners:4,freeKicks:6,offsides:0,saves:9,fouls:11,yellow:1,red:0,xg:0.66,xa:0.41},
+    away:{possession:67,shots:27,shotsOnTarget:10,passes:612,passesAcc:540,keyPasses:19,corners:14,freeKicks:11,offsides:6,saves:2,fouls:6,yellow:0,red:0,xg:1.72,xa:1.68},
+  },
+  home:[
+    {name:"페라스 알 부라이칸",pos:"FW",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:0.02,passes:"13/22",interceptions:0,tackles:0,clearances:0},
+    {name:"무사브 알 주와이르",pos:"FW",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:0.09,passes:"24/31",interceptions:1,tackles:1,clearances:1},
+    {name:"압둘라 알 하마단",pos:"FW",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:null,passes:"0/1",interceptions:0,tackles:0,clearances:0},
+    {name:"살레 알 셰흐리",pos:"FW",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:null,passes:"-",interceptions:0,tackles:0,clearances:0},
+    {name:"술탄 만다시",pos:"FW",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:null,passes:"-",interceptions:0,tackles:0,clearances:0},
+    {name:"칼리드 알 간남",pos:"FW",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:null,passes:"-",interceptions:0,tackles:0,clearances:0},
+    {name:"모하메드 칸노",pos:"MF",goals:0,assists:0,shots:2,shotsOnTarget:1,xg:0.11,xa:0.01,passes:"33/37",interceptions:2,tackles:1,clearances:0},
+    {name:"살렘 알 다우사리",pos:"MF",goals:0,assists:0,shots:1,shotsOnTarget:0,xg:0.03,xa:0.07,passes:"24/33",interceptions:0,tackles:1,clearances:1},
+    {name:"압둘라 알 카이바리",pos:"MF",goals:0,assists:0,shots:1,shotsOnTarget:0,xg:0.03,xa:null,passes:"21/26",interceptions:1,tackles:0,clearances:0},
+    {name:"모하메드 아부 알샤마트",pos:"MF",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:0.01,passes:"19/23",interceptions:1,tackles:0,clearances:2},
+    {name:"나세르 알 다우사리",pos:"MF",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:0.01,passes:"11/13",interceptions:1,tackles:1,clearances:3},
+    {name:"알라 알 헤지",pos:"MF",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:null,passes:"-",interceptions:0,tackles:0,clearances:0},
+    {name:"아이만 야히야",pos:"MF",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:null,passes:"-",interceptions:0,tackles:0,clearances:0},
+    {name:"지야드 알 조하니",pos:"MF",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:null,passes:"-",interceptions:0,tackles:0,clearances:0},
+    {name:"압둘레라 알 암리",pos:"DF",goals:1,assists:0,shots:2,shotsOnTarget:2,xg:0.49,xa:0.18,passes:"23/27",interceptions:1,tackles:1,clearances:6},
+    {name:"하산 알 탐박티",pos:"DF",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:null,passes:"22/28",interceptions:1,tackles:0,clearances:6},
+    {name:"모테브 알 하르비",pos:"DF",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:0.01,xa:null,passes:"19/27",interceptions:1,tackles:0,clearances:7},
+    {name:"사우드 압둘하미드",pos:"DF",goals:0,assists:0,shots:1,shotsOnTarget:0,xg:0.04,xa:null,passes:"14/21",interceptions:0,tackles:3,clearances:3},
+    {name:"나와프 부샬",pos:"DF",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:null,passes:"3/4",interceptions:0,tackles:0,clearances:0},
+    {name:"알리 라자미",pos:"DF",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:null,passes:"-",interceptions:0,tackles:0,clearances:4},
+    {name:"알리 마즈라시",pos:"DF",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:null,passes:"-",interceptions:0,tackles:0,clearances:0},
+    {name:"제하드 디크리",pos:"DF",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:null,passes:"-",interceptions:0,tackles:0,clearances:0},
+    {name:"하산 카디쉬",pos:"DF",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:null,passes:"-",interceptions:0,tackles:0,clearances:0},
+    {name:"모하메드 알 오와이스",pos:"GK",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:null,passes:"10/29",interceptions:0,tackles:0,clearances:2},
+    {name:"나와프 알 아키디",pos:"GK",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:null,passes:"-",interceptions:0,tackles:0,clearances:0},
+    {name:"아흐메드 알 카사르",pos:"GK",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:null,passes:"-",interceptions:0,tackles:0,clearances:0},
+  ],
+  away:[
+    {name:"누녜스",pos:"FW",goals:0,assists:0,shots:1,shotsOnTarget:0,xg:0.21,xa:null,passes:"3/3",interceptions:1,tackles:1,clearances:1},
+    {name:"카노비오",pos:"FW",goals:0,assists:0,shots:1,shotsOnTarget:0,xg:0.02,xa:0.10,passes:"20/23",interceptions:2,tackles:0,clearances:0},
+    {name:"로드리게스",pos:"FW",goals:0,assists:1,shots:2,shotsOnTarget:1,xg:0.04,xa:0.02,passes:"8/10",interceptions:0,tackles:0,clearances:0},
+    {name:"아기레",pos:"FW",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:null,passes:"0/1",interceptions:0,tackles:0,clearances:0},
+    {name:"막시 아라우호",pos:"MF",goals:1,assists:0,shots:2,shotsOnTarget:2,xg:0.24,xa:0.38,passes:"18/21",interceptions:0,tackles:0,clearances:1},
+    {name:"발베르데",pos:"MF",goals:0,assists:0,shots:3,shotsOnTarget:2,xg:0.07,xa:0.07,passes:"37/43",interceptions:1,tackles:0,clearances:1},
+    {name:"벤탄쿠르",pos:"MF",goals:0,assists:0,shots:1,shotsOnTarget:0,xg:0.20,xa:0.06,passes:"68/80",interceptions:0,tackles:1,clearances:1},
+    {name:"비냐스",pos:"MF",goals:0,assists:0,shots:5,shotsOnTarget:3,xg:0.50,xa:0.07,passes:"11/17",interceptions:0,tackles:0,clearances:0},
+    {name:"우가르테",pos:"MF",goals:0,assists:0,shots:2,shotsOnTarget:1,xg:0.03,xa:0.02,passes:"57/63",interceptions:2,tackles:0,clearances:0},
+    {name:"사나브리아",pos:"MF",goals:0,assists:0,shots:3,shotsOnTarget:0,xg:0.11,xa:0.16,passes:"31/31",interceptions:0,tackles:0,clearances:0},
+    {name:"데 라 크루스",pos:"MF",goals:0,assists:0,shots:2,shotsOnTarget:1,xg:0.15,xa:0.16,passes:"23/24",interceptions:0,tackles:0,clearances:0},
+    {name:"살라사르",pos:"MF",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:null,passes:"-",interceptions:0,tackles:0,clearances:0},
+    {name:"펠리스트리",pos:"MF",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:null,passes:"-",interceptions:0,tackles:0,clearances:0},
+    {name:"E. 마르티네스",pos:"MF",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:null,passes:"-",interceptions:0,tackles:0,clearances:0},
+    {name:"바렐라",pos:"DF",goals:0,assists:0,shots:2,shotsOnTarget:0,xg:0.04,xa:0.11,passes:"43/51",interceptions:4,tackles:0,clearances:1},
+    {name:"올리베라",pos:"DF",goals:0,assists:0,shots:1,shotsOnTarget:0,xg:0.05,xa:0.29,passes:"99/103",interceptions:0,tackles:0,clearances:0},
+    {name:"카세레스",pos:"DF",goals:0,assists:0,shots:2,shotsOnTarget:0,xg:0.13,xa:0.21,passes:"72/83",interceptions:0,tackles:0,clearances:1},
+    {name:"비냐",pos:"DF",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:0.02,passes:"21/29",interceptions:0,tackles:0,clearances:0},
+    {name:"부에노",pos:"DF",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:null,passes:"-",interceptions:0,tackles:0,clearances:0},
+    {name:"피케레스",pos:"DF",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:null,passes:"-",interceptions:0,tackles:0,clearances:0},
+    {name:"히메네스",pos:"DF",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:null,passes:"-",interceptions:0,tackles:0,clearances:0},
+    {name:"무슬레라",pos:"GK",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:null,passes:"29/30",interceptions:0,tackles:0,clearances:1},
+    {name:"로셰트",pos:"GK",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:null,passes:"-",interceptions:0,tackles:0,clearances:0},
+    {name:"멜레",pos:"GK",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:null,passes:"-",interceptions:0,tackles:0,clearances:0},
+  ],
+},
+"이란_뉴질랜드": {
+  date:"2026-06-16",
+  team: {
+    home:{possession:49,shots:17,shotsOnTarget:4,passes:409,passesAcc:314,keyPasses:11,corners:4,freeKicks:8,offsides:2,saves:6,fouls:10,yellow:1,red:0,xg:1.50,xa:0.68},
+    away:{possession:52,shots:14,shotsOnTarget:8,passes:446,passesAcc:376,keyPasses:9,corners:1,freeKicks:10,offsides:0,saves:2,fouls:8,yellow:0,red:0,xg:1.24,xa:0.47},
+  },
+  home:[
+    {name:"타레미",pos:"FW",goals:0,assists:0,shots:2,shotsOnTarget:0,xg:0.20,xa:0.02,passes:"30/38",interceptions:1,tackles:0,clearances:1},
+    {name:"모간루",pos:"FW",goals:0,assists:0,shots:3,shotsOnTarget:0,xg:0.20,xa:0.01,passes:"8/19",interceptions:0,tackles:1,clearances:2},
+    {name:"가예디",pos:"FW",goals:0,assists:0,shots:1,shotsOnTarget:0,xg:0.03,xa:0.19,passes:"5/10",interceptions:0,tackles:0,clearances:0},
+    {name:"알리푸르",pos:"FW",goals:0,assists:0,shots:1,shotsOnTarget:0,xg:0.06,xa:null,passes:"5/9",interceptions:1,tackles:1,clearances:1},
+    {name:"호세인자데",pos:"FW",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:0.01,passes:"7/8",interceptions:0,tackles:1,clearances:0},
+    {name:"다르가히",pos:"FW",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:null,passes:"-",interceptions:0,tackles:0,clearances:0},
+    {name:"자한바크시",pos:"FW",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:null,passes:"-",interceptions:0,tackles:0,clearances:0},
+    {name:"모헤비",pos:"MF",goals:1,assists:0,shots:2,shotsOnTarget:1,xg:0.32,xa:0.03,passes:"19/28",interceptions:0,tackles:0,clearances:0},
+    {name:"에자톨라히",pos:"MF",goals:0,assists:0,shots:2,shotsOnTarget:1,xg:0.05,xa:0.02,passes:"38/45",interceptions:3,tackles:1,clearances:2},
+    {name:"고도스",pos:"MF",goals:0,assists:0,shots:2,shotsOnTarget:0,xg:0.13,xa:0.01,passes:"18/28",interceptions:3,tackles:2,clearances:0},
+    {name:"유세피",pos:"MF",goals:0,assists:0,shots:1,shotsOnTarget:1,xg:0.05,xa:0.04,passes:"15/17",interceptions:1,tackles:0,clearances:0},
+    {name:"고르바니",pos:"MF",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:null,passes:"-",interceptions:0,tackles:0,clearances:0},
+    {name:"라자기니아",pos:"MF",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:null,passes:"-",interceptions:0,tackles:0,clearances:0},
+    {name:"체슈미",pos:"MF",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:null,passes:"-",interceptions:0,tackles:0,clearances:0},
+    {name:"토라비",pos:"MF",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:null,passes:"-",interceptions:0,tackles:0,clearances:0},
+    {name:"레자에이안",pos:"DF",goals:1,assists:1,shots:1,shotsOnTarget:1,xg:0.35,xa:0.33,passes:"31/42",interceptions:1,tackles:1,clearances:0},
+    {name:"네마티",pos:"DF",goals:0,assists:0,shots:1,shotsOnTarget:0,xg:0.08,xa:0.01,passes:"50/55",interceptions:0,tackles:0,clearances:12},
+    {name:"모함마디",pos:"DF",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:0.01,passes:"31/37",interceptions:0,tackles:2,clearances:4},
+    {name:"카릴자데",pos:"DF",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:null,passes:"36/49",interceptions:1,tackles:1,clearances:4},
+    {name:"하지사피",pos:"DF",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:0.03,xa:null,passes:"7/8",interceptions:0,tackles:0,clearances:0},
+    {name:"에이리",pos:"DF",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:null,passes:"-",interceptions:0,tackles:0,clearances:0},
+    {name:"카나니",pos:"DF",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:null,passes:"-",interceptions:0,tackles:0,clearances:0},
+    {name:"하르다니",pos:"DF",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:null,passes:"-",interceptions:0,tackles:0,clearances:0},
+    {name:"베이란반드",pos:"GK",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:null,passes:"14/16",interceptions:0,tackles:0,clearances:0},
+    {name:"니아즈만드",pos:"GK",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:null,passes:"-",interceptions:0,tackles:0,clearances:0},
+    {name:"호세이니",pos:"GK",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:null,passes:"-",interceptions:0,tackles:0,clearances:0},
+  ],
+  away:[
+    {name:"크리스 우드",pos:"FW",goals:0,assists:2,shots:4,shotsOnTarget:2,xg:0.22,xa:0.09,passes:"14/17",interceptions:0,tackles:0,clearances:0},
+    {name:"올드",pos:"FW",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:null,passes:"7/8",interceptions:0,tackles:0,clearances:0},
+    {name:"랜달",pos:"FW",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:0.07,passes:"-",interceptions:0,tackles:0,clearances:0},
+    {name:"바르바루세스",pos:"FW",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:null,passes:"-",interceptions:0,tackles:0,clearances:0},
+    {name:"벤 웨인",pos:"FW",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:null,passes:"-",interceptions:0,tackles:0,clearances:0},
+    {name:"저스트",pos:"MF",goals:2,assists:0,shots:2,shotsOnTarget:2,xg:0.31,xa:0.11,passes:"22/26",interceptions:1,tackles:1,clearances:1},
+    {name:"벨",pos:"MF",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:0.02,passes:"40/50",interceptions:2,tackles:1,clearances:1},
+    {name:"스타메닉",pos:"MF",goals:0,assists:0,shots:1,shotsOnTarget:0,xg:0.04,xa:0.02,passes:"50/58",interceptions:2,tackles:1,clearances:2},
+    {name:"싱",pos:"MF",goals:0,assists:0,shots:3,shotsOnTarget:2,xg:0.16,xa:0.09,passes:"33/41",interceptions:1,tackles:1,clearances:1},
+    {name:"맥코왓",pos:"MF",goals:0,assists:0,shots:2,shotsOnTarget:1,xg:0.04,xa:0.02,passes:"28/35",interceptions:2,tackles:1,clearances:0},
+    {name:"토마스",pos:"MF",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:null,passes:"3/6",interceptions:0,tackles:0,clearances:2},
+    {name:"루퍼",pos:"MF",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:null,passes:"-",interceptions:0,tackles:0,clearances:0},
+    {name:"베일리스",pos:"MF",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:null,passes:"-",interceptions:0,tackles:0,clearances:0},
+    {name:"박스올",pos:"DF",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:0.02,passes:"50/53",interceptions:2,tackles:0,clearances:0},
+    {name:"서먼",pos:"DF",goals:0,assists:0,shots:1,shotsOnTarget:0,xg:0.45,xa:0.01,passes:"51/54",interceptions:3,tackles:1,clearances:0},
+    {name:"페인",pos:"DF",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:0.01,passes:"26/32",interceptions:1,tackles:1,clearances:1},
+    {name:"카카체",pos:"DF",goals:0,assists:0,shots:1,shotsOnTarget:1,xg:0.02,xa:0.01,passes:"17/22",interceptions:1,tackles:1,clearances:0},
+    {name:"엘리엇",pos:"DF",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:null,passes:"5/5",interceptions:0,tackles:1,clearances:0},
+    {name:"빈돈",pos:"DF",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:null,passes:"1/1",interceptions:0,tackles:1,clearances:0},
+    {name:"드 브리스",pos:"DF",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:null,passes:"-",interceptions:0,tackles:0,clearances:0},
+    {name:"스미스",pos:"DF",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:null,passes:"-",interceptions:0,tackles:0,clearances:0},
+    {name:"페이나커르",pos:"DF",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:null,passes:"-",interceptions:0,tackles:0,clearances:0},
+    {name:"크로콤",pos:"GK",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:0.01,xa:null,passes:"29/38",interceptions:0,tackles:0,clearances:0},
+    {name:"마이클 우드",pos:"GK",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:null,passes:"-",interceptions:0,tackles:0,clearances:0},
+    {name:"폴슨",pos:"GK",goals:0,assists:0,shots:0,shotsOnTarget:0,xg:null,xa:null,passes:"-",interceptions:0,tackles:0,clearances:0},
+  ],
+},
+});
 
 const OPENING_RESULTS = [
   { home:"대한민국", away:"체코", date:"2026-06-13", hg:2, ag:1, homeWinProb:0.4, drawProb:0.28, awayWinProb:0.32, topScore:"1-1" },
@@ -3829,13 +4861,28 @@ async function fetchLiveLineup(home, away, dateISO) {
 // 👤 개인 기여도 패널 — ESPN summary boxscore 기반 (Goals/Assists/Shots/Tackles/Rating/Passes)
 //   라인업 패널과 같은 ESPN summary를 사용하므로 경기 시작 후(특히 종료 후)에 채워짐.
 function PlayerContributionPanel({home, away, matchDate}) {
-  const [stats, setStats] = useState(null);
-  const [loading, setLoading] = useState(true);
-  const [tried, setTried] = useState(false);
-  const [source, setSource] = useState(null);
+  const staticKey = `${home}_${away}`;
+  const staticData = STATIC_MATCH_STATS[staticKey] || null;
+
+  const [stats, setStats] = useState(staticData ? { home: staticData.home, away: staticData.away } : null);
+  const [loading, setLoading] = useState(!staticData);
+  const [tried, setTried] = useState(!!staticData);
+  const [source, setSource] = useState(staticData ? "경기 통계 리포트" : null);
+  const [expanded, setExpanded] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
+
+    // 내장 정적 기록이 있으면 그것을 즉시 표시(가장 상세함: xG/xA/키패스/인터셉트/태클/걷어내기 포함)
+    const sd = STATIC_MATCH_STATS[`${home}_${away}`];
+    if (sd) {
+      setStats({ home: sd.home, away: sd.away });
+      setSource("경기 통계 리포트");
+      setLoading(false);
+      setTried(true);
+      return; // 정적 기록이 가장 충실하므로 API 조회로 덮어쓰지 않음
+    }
+
     setLoading(true);
 
     // 1) 저장된 ESPN 기록 먼저 표시 (즉시)
@@ -3871,23 +4918,62 @@ function PlayerContributionPanel({home, away, matchDate}) {
     return () => { cancelled = true; };
   }, [home, away, matchDate]);
 
+  const hasDetailed = !!staticData; // xG/xA/키패스/인터셉트/걷어내기까지 있는지 여부
+
   const all = [
     ...(stats?.home||[]).map(p=>({...p, team: home})),
     ...(stats?.away||[]).map(p=>({...p, team: away})),
   ];
-  const top = all
-    .filter(p => (p.goals||0) > 0 || (p.assists||0) > 0 || (p.rating!=null))
-    .sort((a,b) => (b.rating||0) - (a.rating||0) || (b.goals||0)-(a.goals||0))
-    .slice(0, 8);
+  const ranked = all
+    .filter(p => (p.goals||0) > 0 || (p.assists||0) > 0 || (p.rating!=null) || (p.xg||0) > 0 || (p.shots||0) > 0)
+    .sort((a,b) => (b.goals||0)-(a.goals||0) || (b.assists||0)-(a.assists||0) || (b.rating||0) - (a.rating||0) || (b.xg||0)-(a.xg||0));
+  const top = expanded ? ranked : ranked.slice(0, 8);
 
   return (
     <Card style={{marginTop:12}}>
-      <SectionTitle sub={`${source || "API-Football/ESPN"} 경기 통계 기반 (골·어시스트·슈팅·태클·평점) — 경기 진행/종료 후 표시`}>👤 개인 기여도</SectionTitle>
+      <SectionTitle sub={hasDetailed
+        ? `${source} 기반 (골·도움·슈팅·xG·xA·인터셉트·태클·걷어내기 전체)`
+        : `${source || "API-Football/ESPN"} 경기 통계 기반 (골·어시스트·슈팅·태클·평점) — 경기 진행/종료 후 표시`}>
+        👤 개인 기여도
+      </SectionTitle>
       {loading && top.length===0 ? (
         <div style={{fontSize:12, color:T.muted, textAlign:"center", padding:"8px 0"}}>⏳ 조회 중...</div>
       ) : top.length === 0 ? (
         <div style={{fontSize:12, color:T.muted, lineHeight:1.6}}>
           {tried ? "아직 표시할 개인 기록이 없습니다 (경기 시작 전이거나 API 미제공)." : "데이터 없음"}
+        </div>
+      ) : hasDetailed ? (
+        <div style={{display:"flex", flexDirection:"column", gap:8}}>
+          {top.map((p, i) => (
+            <div key={i} style={{padding:"8px 6px", borderTop: i===0 ? "none" : `1px solid ${T.border}`}}>
+              <div style={{display:"flex", justifyContent:"space-between", alignItems:"baseline", marginBottom:4}}>
+                <span style={{fontWeight:700, fontSize:13}}>
+                  {p.name} <span style={{color:T.dim, fontWeight:400, fontSize:10.5}}>({p.team}· {p.pos||"-"})</span>
+                </span>
+                <span style={{display:"flex", gap:6, fontSize:11.5, fontWeight:700}}>
+                  {(p.goals||0) > 0 && <span style={{color:T.green}}>⚽{p.goals}</span>}
+                  {(p.assists||0) > 0 && <span style={{color:T.blue||T.text}}>🅰{p.assists}</span>}
+                </span>
+              </div>
+              <div style={{display:"flex", flexWrap:"wrap", gap:"4px 10px", fontSize:10.5, color:T.muted}}>
+                <span>슈팅 {p.shots ?? "-"}{p.shotsOnTarget!=null ? `(유효${p.shotsOnTarget})` : ""}</span>
+                <span>xG {p.xg!=null ? p.xg.toFixed(2) : "-"}</span>
+                <span>xA {p.xa!=null ? p.xa.toFixed(2) : "-"}</span>
+                <span>패스 {p.passes ?? "-"}</span>
+                <span>인터셉트 {p.interceptions ?? 0}</span>
+                <span>태클 {p.tackles ?? 0}</span>
+                <span>걷어내기 {p.clearances ?? 0}</span>
+              </div>
+            </div>
+          ))}
+          {ranked.length > 8 && (
+            <button onClick={() => setExpanded(e => !e)} style={{
+              marginTop:2, padding:"6px 0", fontSize:11.5, color:T.dim,
+              background:"transparent", border:"none", cursor:"pointer", textAlign:"center"
+            }}>
+              {expanded ? "▲ 접기" : `▼ 전체 ${ranked.length}명 보기`}
+            </button>
+          )}
         </div>
       ) : (
         <div style={{display:"flex", flexDirection:"column", gap:6}}>
@@ -6146,7 +7232,6 @@ function App() {
 }
 
 try {
-  document.getElementById("root").dataset.mounted = "1";
   ReactDOM.createRoot(document.getElementById("root")).render(
     <ErrorBoundary><App/></ErrorBoundary>
   );
