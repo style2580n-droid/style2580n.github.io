@@ -1992,6 +1992,222 @@ Object.assign(STATIC_MATCH_STATS, {
 },
 });
 
+// ═══════════════════════════════════════════════════════════
+// 🏆 STATIC_LEADERBOARD — 종료된 16경기(2026-06-12~16) 기준
+//   STATIC_MATCH_STATS(네이버 스포츠 리포트)에서 자동 집계한 정답값.
+//   ESPN 자동 집계가 부정확/중복되는 문제를 보완하기 위해 이 정적
+//   데이터를 최우선으로 사용. 카드(경고/퇴장)는 PDF에 팀 단위 합계만
+//   있어 선수별 집계 불가 — 카드 탭은 ESPN/수동 입력 값을 그대로 사용.
+// ═══════════════════════════════════════════════════════════
+const STATIC_LEADERBOARD = {
+  scorers: {
+    "오현규|대한민국": 1,
+    "황인범|대한민국": 1,
+    "라디슬라프 크레이치|체코": 1,
+    "라울 히메네스|멕시코": 1,
+    "퀴뇨네스|멕시코": 1,
+    "비니시우스|브라질": 1,
+    "사이바리|모로코": 1,
+    "맥긴|스코틀랜드": 1,
+    "멧칼프|호주": 1,
+    "이란쿤다|호주": 1,
+    "래린|캐나다": 1,
+    "루키치|보스니아": 1,
+    "엠볼로|스위스": 1,
+    "하베르츠|독일": 2,
+    "운다브|독일": 1,
+    "은메차|독일": 1,
+    "무시알라|독일": 1,
+    "술로터벡|독일": 1,
+    "브라운|독일": 1,
+    "코메넨시아|퀴라소": 1,
+    "서머빌|네덜란드": 1,
+    "반 다이크|네덜란드": 1,
+    "나카무라|일본": 1,
+    "카마다|일본": 1,
+    "디알로|코트디부아르": 1,
+    "요케레스|스웨덴": 1,
+    "이삭|스웨덴": 1,
+    "아야리|스웨덴": 2,
+    "스반베리|스웨덴": 1,
+    "레킥|튀니지": 1,
+    "발로건|미국": 2,
+    "레이나|미국": 1,
+    "마우리시우|파라과이": 1,
+    "에맘 아슈르|이집트": 1,
+    "압둘레라 알 암리|사우디아라비아": 1,
+    "막시 아라우호|우루과이": 1,
+    "모헤비|이란": 1,
+    "레자에이안|이란": 1,
+    "저스트|뉴질랜드": 2
+  },
+  assists: {
+    "황인범|대한민국": 1,
+    "이강인|대한민국": 1,
+    "블라디미르 초우팔|체코": 1,
+    "알바라도|멕시코": 1,
+    "리라|멕시코": 1,
+    "브루노 기마랑이스|브라질": 1,
+    "브라힘 디아스|모로코": 1,
+    "하키미|모로코": 1,
+    "오콘 엥슬러|호주": 1,
+    "프로미스 데이비드|캐나다": 1,
+    "호맘 아흐메드|카타르": 1,
+    "엠볼로|스위스": 1,
+    "하베르츠|독일": 1,
+    "비르츠|독일": 1,
+    "키미히|독일": 2,
+    "흐라벤베르흐|네덜란드": 2,
+    "오가와|일본": 1,
+    "싱고|코트디부아르": 1,
+    "메브리|튀니지": 1,
+    "틸만|미국": 1,
+    "풀리식|미국": 1,
+    "프리먼|미국": 1,
+    "엔시소|파라과이": 1,
+    "더 브라위너|벨기에": 1,
+    "모하메드 살라|이집트": 1,
+    "로드리게스|우루과이": 1,
+    "레자에이안|이란": 1,
+    "크리스 우드|뉴질랜드": 2
+  },
+  gk: {
+    "김승규|대한민국": {
+      "apps": 1,
+      "cs": 0
+    },
+    "마테이 코바르|체코": {
+      "apps": 1,
+      "cs": 0
+    },
+    "랑헬|멕시코": {
+      "apps": 1,
+      "cs": 1
+    },
+    "윌리엄스|남아프리카공화국": {
+      "apps": 1,
+      "cs": 0
+    },
+    "크레포|캐나다": {
+      "apps": 1,
+      "cs": 0
+    },
+    "바실리|보스니아": {
+      "apps": 1,
+      "cs": 0
+    },
+    "프리즈|미국": {
+      "apps": 1,
+      "cs": 0
+    },
+    "길|파라과이": {
+      "apps": 1,
+      "cs": 0
+    },
+    "마흐무드 아부나다|카타르": {
+      "apps": 1,
+      "cs": 0
+    },
+    "코벨|스위스": {
+      "apps": 1,
+      "cs": 0
+    },
+    "알리송 베케르|브라질": {
+      "apps": 1,
+      "cs": 0
+    },
+    "부누|모로코": {
+      "apps": 1,
+      "cs": 0
+    },
+    "플라시드|아이티": {
+      "apps": 1,
+      "cs": 0
+    },
+    "건|스코틀랜드": {
+      "apps": 1,
+      "cs": 1
+    },
+    "야히아 포파나|코트디부아르": {
+      "apps": 1,
+      "cs": 1
+    },
+    "갈린데스|에콰도르": {
+      "apps": 1,
+      "cs": 0
+    },
+    "페르브뤼헨|네덜란드": {
+      "apps": 1,
+      "cs": 0
+    },
+    "스즈키 자이온|일본": {
+      "apps": 1,
+      "cs": 0
+    },
+    "노이어|독일": {
+      "apps": 1,
+      "cs": 0
+    },
+    "룸|퀴라소": {
+      "apps": 1,
+      "cs": 0
+    },
+    "노르드펠트|스웨덴": {
+      "apps": 1,
+      "cs": 0
+    },
+    "삼흐크|튀니지": {
+      "apps": 1,
+      "cs": 0
+    },
+    "비치|호주": {
+      "apps": 1,
+      "cs": 1
+    },
+    "차크르|튀르키예": {
+      "apps": 1,
+      "cs": 0
+    },
+    "베이란반드|이란": {
+      "apps": 1,
+      "cs": 0
+    },
+    "크로콤|뉴질랜드": {
+      "apps": 1,
+      "cs": 0
+    },
+    "쿠르투아|벨기에": {
+      "apps": 1,
+      "cs": 0
+    },
+    "모스타파 쇼베이르|이집트": {
+      "apps": 1,
+      "cs": 0
+    },
+    "우나이 시몬|스페인": {
+      "apps": 1,
+      "cs": 1
+    },
+    "보지냐|카보베르데": {
+      "apps": 1,
+      "cs": 1
+    },
+    "모하메드 알 오와이스|사우디아라비아": {
+      "apps": 1,
+      "cs": 0
+    },
+    "무슬레라|우루과이": {
+      "apps": 1,
+      "cs": 0
+    }
+  },
+  ownGoals: {
+    "보바디야|파라과이": 1,
+    "모하메드 하니|벨기에": 1,
+    "무하임|스위스": 1
+  },
+};
+
 const OPENING_RESULTS = [
   { home:"대한민국", away:"체코", date:"2026-06-13", hg:2, ag:1, homeWinProb:0.4, drawProb:0.28, awayWinProb:0.32, topScore:"1-1" },
   { home:"멕시코", away:"남아프리카공화국", date:"2026-06-13", hg:2, ag:0, homeWinProb:0.55, drawProb:0.25, awayWinProb:0.2, topScore:"2-1" },
@@ -4947,7 +5163,7 @@ function PlayerContributionPanel({home, away, matchDate}) {
           {top.map((p, i) => (
             <div key={i} style={{padding:"8px 6px", borderTop: i===0 ? "none" : `1px solid ${T.border}`}}>
               <div style={{display:"flex", justifyContent:"space-between", alignItems:"baseline", marginBottom:4}}>
-                <span style={{fontWeight:700, fontSize:13}}>
+                <span style={{fontWeight:700, fontSize:13, color:T.text}}>
                   {p.name} <span style={{color:T.dim, fontWeight:400, fontSize:10.5}}>({p.team}· {p.pos||"-"})</span>
                 </span>
                 <span style={{display:"flex", gap:6, fontSize:11.5, fontWeight:700}}>
@@ -4988,7 +5204,7 @@ function PlayerContributionPanel({home, away, matchDate}) {
           {top.map((p, i) => (
             <div key={i} style={{display:"flex", alignItems:"center", fontSize:12, padding:"6px 4px",
               borderTop:`1px solid ${T.border}`}}>
-              <span style={{flex:2}}>{p.name} <span style={{color:T.dim, fontSize:10.5}}>({p.team})</span></span>
+              <span style={{flex:2, color:T.text}}>{p.name} <span style={{color:T.dim, fontSize:10.5}}>({p.team})</span></span>
               <span style={{flex:"0 0 30px", textAlign:"center", color:T.muted}}>{p.goals ?? "-"}</span>
               <span style={{flex:"0 0 30px", textAlign:"center", color:T.muted}}>{p.assists ?? "-"}</span>
               <span style={{flex:"0 0 36px", textAlign:"center", color:T.muted}}>{p.shots ?? "-"}</span>
@@ -5038,6 +5254,7 @@ function LiveLineupPanel({home, away, matchDate}) {
   // 항상 정적 XI 폴백 준비
   const homeXi = SQUADS[home]?.xi || [];
   const awayXi = SQUADS[away]?.xi || [];
+  const staticMatch = STATIC_MATCH_STATS[`${home}_${away}`] || null;
   const isLive = lineup?.confirmed && (lineup.home?.length || lineup.away?.length);
   const homeList = isLive ? lineup.home : homeXi;
   const awayList = isLive ? lineup.away : awayXi;
@@ -5050,8 +5267,9 @@ function LiveLineupPanel({home, away, matchDate}) {
   const ownGoals = lineup?.ownGoals || { home: [], away: [] };
   const hasOwnGoals = ownGoals.home.length > 0 || ownGoals.away.length > 0;
   const varEvents = lineup?.varEvents || [];
-  const teamStats = lineup?.teamStats || { home:null, away:null };
+  const teamStats = staticMatch ? staticMatch.team : (lineup?.teamStats || { home:null, away:null });
   const hasTeamStats = !!(teamStats.home || teamStats.away);
+  const hasDetailedTeamStats = !!staticMatch;
   const shootout = lineup?.shootout || null;
   const referee = lineup?.referee || null;
   const sourceLabel = lineup?.source === "espn" ? "ESPN" : lineup?.source === "football-data.org" ? "football-data.org" : null;
@@ -5165,21 +5383,46 @@ function LiveLineupPanel({home, away, matchDate}) {
 
       {hasTeamStats && (
         <div style={{marginTop:10, paddingTop:10, borderTop:`1px solid ${T.border}`}}>
-          <div style={{fontSize:11.5, color:T.muted, marginBottom:6}}>📊 팀 통계</div>
+          <div style={{fontSize:11.5, color:T.muted, marginBottom:6}}>
+            📊 팀 통계{hasDetailedTeamStats ? " (경기 통계 리포트)" : ""}
+          </div>
           <div style={{display:"flex", flexDirection:"column", gap:4, fontSize:11.5}}>
-            {[
+            {(hasDetailedTeamStats ? [
+              {k:"possession", label:"점유율", suffix:"%"},
+              {k:"shots", label:"슈팅"},
+              {k:"shotsOnTarget", label:"유효슈팅"},
+              {k:"xg", label:"xG", decimals:2},
+              {k:"xa", label:"xA", decimals:2},
+              {k:"passes", label:"패스시도"},
+              {k:"passesAcc", label:"패스성공"},
+              {k:"keyPasses", label:"키패스"},
+              {k:"corners", label:"코너킥"},
+              {k:"freeKicks", label:"프리킥"},
+              {k:"offsides", label:"오프사이드"},
+              {k:"saves", label:"선방"},
+              {k:"fouls", label:"파울"},
+              {k:"yellow", label:"경고"},
+              {k:"red", label:"퇴장"},
+            ] : [
               {k:"possession", label:"점유율"},
               {k:"shots", label:"슈팅"},
               {k:"shotsOnTarget", label:"유효슈팅"},
               {k:"corners", label:"코너킥"},
               {k:"fouls", label:"파울"},
-            ].filter(row => teamStats.home?.[row.k] != null || teamStats.away?.[row.k] != null).map(row => (
-              <div key={row.k} style={{display:"grid", gridTemplateColumns:"1fr auto 1fr", alignItems:"center", gap:6}}>
-                <div style={{textAlign:"right", color:T.text}}>{teamStats.home?.[row.k] ?? "-"}</div>
-                <div style={{color:T.muted, padding:"0 8px", whiteSpace:"nowrap"}}>{row.label}</div>
-                <div style={{textAlign:"left", color:T.text}}>{teamStats.away?.[row.k] ?? "-"}</div>
-              </div>
-            ))}
+            ]).filter(row => teamStats.home?.[row.k] != null || teamStats.away?.[row.k] != null).map(row => {
+              const fmt = (v) => {
+                if (v == null) return "-";
+                if (row.decimals != null && typeof v === "number") return v.toFixed(row.decimals);
+                return `${v}${row.suffix || ""}`;
+              };
+              return (
+                <div key={row.k} style={{display:"grid", gridTemplateColumns:"1fr auto 1fr", alignItems:"center", gap:6}}>
+                  <div style={{textAlign:"right", color:T.text}}>{fmt(teamStats.home?.[row.k])}</div>
+                  <div style={{color:T.muted, padding:"0 8px", whiteSpace:"nowrap"}}>{row.label}</div>
+                  <div style={{textAlign:"left", color:T.text}}>{fmt(teamStats.away?.[row.k])}</div>
+                </div>
+              );
+            })}
           </div>
         </div>
       )}
@@ -6351,27 +6594,36 @@ function LeaderboardView() {
   };
 
   const list = useMemo(() => {
-    if (!state) return [];
     if (lbType === "gk") {
-      return Object.entries(state.gk || {}).map(([k,v]) => {
+      // 정적 데이터(16경기) + ESPN 추가분(state.gk, 같은 키는 정적값 유지)
+      const merged = { ...(state?.gk || {}) };
+      for (const [k, v] of Object.entries(STATIC_LEADERBOARD.gk)) merged[k] = v; // 정적값으로 덮어써 정확성 보장
+      return Object.entries(merged).map(([k,v]) => {
         const [name, team] = k.split("|");
         return { name, team, cs:v.cs, apps:v.apps, conceded:v.conceded };
-      }).sort((a,b) => (b.cs - a.cs) || (a.conceded - b.conceded)).slice(0,15);
+      }).sort((a,b) => (b.cs - a.cs) || ((a.conceded??0) - (b.conceded??0))).slice(0,15);
     }
     if (lbType === "cards") {
+      if (!state) return [];
       return Object.entries(state.cards || {}).map(([k,v]) => {
         const [name, team] = k.split("|");
         return { name, team, yellow:v.yellow||0, red:v.red||0 };
       }).sort((a,b) => (b.red - a.red) || (b.yellow - a.yellow)).slice(0,15);
     }
     if (lbType === "ownGoals") {
-      return Object.entries(state.ownGoals || {}).map(([k,v]) => {
+      const merged = { ...(state?.ownGoals || {}) };
+      for (const [k, v] of Object.entries(STATIC_LEADERBOARD.ownGoals)) merged[k] = v;
+      return Object.entries(merged).map(([k,v]) => {
         const [name, team] = k.split("|");
         return { name, team, count:v };
       }).sort((a,b) => b.count - a.count).slice(0,15);
     }
-    const src = lbType === "scorers" ? state[scorerKey] : state[assistKey];
-    return Object.entries(src || {}).map(([k,v]) => {
+    // 득점왕/어시스트: 정적(16경기 정답값)을 베이스로, ESPN/API-Football이 더 최신 경기를 잡았으면 그 차이만 보완
+    const staticSrc = lbType === "scorers" ? STATIC_LEADERBOARD.scorers : STATIC_LEADERBOARD.assists;
+    const espnSrc = (state && lbType === "scorers") ? state[scorerKey] : (state ? state[assistKey] : null);
+    const merged = { ...(espnSrc || {}) };
+    for (const [k, v] of Object.entries(staticSrc)) merged[k] = v; // 정적값이 항상 정답
+    return Object.entries(merged).map(([k,v]) => {
       const [name, team] = k.split("|");
       return { name, team, count:v };
     }).sort((a,b) => b.count - a.count).slice(0,15);
@@ -6381,8 +6633,9 @@ function LeaderboardView() {
     <div>
       <Card style={{marginBottom:10}}>
         <div style={{fontSize:12.5, color:T.muted, lineHeight:1.6}}>
-          종료된 경기를 ESPN에서 자동 집계한 대회 기록입니다 (키 불필요). 자책골은 득점 집계에서 제외됩니다.
-          한 번에 최대 4일치 경기만 반영하니, 버튼을 여러 번 누르면 최신까지 갱신됩니다.
+          득점왕·어시스트·골키퍼 클린시트·자책골은 경기 통계 리포트(네이버 스포츠 기준) 16경기 데이터를 정확히 반영합니다.
+          카드(경고/퇴장)는 선수별 기록이 제공되지 않아 ESPN 자동 집계 또는 직접 추가한 값만 표시됩니다.
+          "경기결과 반영"을 누르면 17번째 경기부터는 ESPN으로 추가 보완됩니다.
         </div>
       </Card>
 
@@ -6417,8 +6670,9 @@ function LeaderboardView() {
       {list.length === 0 ? (
         <Card>
           <div style={{fontSize:12.5, color:T.muted, textAlign:"center", padding:"10px 0"}}>
-            데이터 없음 — 위 "경기결과 반영" 버튼을 눌러 종료된 경기 결과를 가져오거나,
-            아래 "수동 추가"로 직접 입력하세요.
+            {lbType === "cards"
+              ? "선수별 카드 기록이 아직 없습니다 — 위 \"경기결과 반영\"으로 ESPN에서 가져오거나, 아래 \"수동 추가\"로 직접 입력하세요."
+              : "데이터 없음 — 위 \"경기결과 반영\" 버튼을 눌러 종료된 경기 결과를 가져오거나, 아래 \"수동 추가\"로 직접 입력하세요."}
           </div>
         </Card>
       ) : (
@@ -6427,7 +6681,7 @@ function LeaderboardView() {
             <div key={i} style={{display:"flex", alignItems:"center", gap:8, padding:"7px 4px",
               borderBottom: i < list.length-1 ? `1px solid ${T.border}` : "none", fontSize:12.5}}>
               <span style={{color:T.muted, width:20, textAlign:"right"}}>{i+1}</span>
-              <span style={{flex:1}}>{p.name} <span style={{color:T.dim, fontSize:11}}>({p.team})</span></span>
+              <span style={{flex:1, color:T.text}}>{p.name} <span style={{color:T.dim, fontSize:11}}>({p.team})</span></span>
               <b style={{color:T.accent, whiteSpace:"nowrap"}}>
                 {lbType === "gk" ? `클린시트 ${p.cs} · ${p.apps}경기`
                   : lbType === "cards" ? `🟨${p.yellow} 🟥${p.red}`
